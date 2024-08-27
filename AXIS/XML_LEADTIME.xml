@@ -40,6 +40,15 @@
           <OrderMultiple />
           <LeadTime />
           <MinOrderQuantity />
+          <ToleranceDays />
+          <PurchaseFactor1 />
+          <PurchaseFactor2 />
+          <PurchaseFactor3 />
+          <PurchaseFactor4 />
+          <SalesFactor1 />
+          <SalesFactor2 />
+          <SalesFactor3 />
+          <SalesFactor4 />
         </SourceFields>
         <TargetFields>
           <RecordKey>RecordKey</RecordKey>
@@ -51,6 +60,14 @@
           <LeadTime>LeadTime</LeadTime>
           <MinOrderQuantity>MinOrderQuantity</MinOrderQuantity>
           <ToleranceDays>ToleranceDays</ToleranceDays>
+          <PurchaseFactor1>PurchaseFactor1</PurchaseFactor1>
+          <PurchaseFactor2>PurchaseFactor2</PurchaseFactor2>
+          <PurchaseFactor3>PurchaseFactor3</PurchaseFactor3>
+          <PurchaseFactor4>PurchaseFactor4</PurchaseFactor4>
+          <SalesFactor1>SalesFactor1</SalesFactor1>
+          <SalesFactor2>SalesFactor2</SalesFactor2>
+          <SalesFactor3>SalesFactor3</SalesFactor3>
+          <SalesFactor4>SalesFactor4</SalesFactor4>
         </TargetFields>
       </Items>
     </Fields>
