@@ -1,0 +1,310 @@
+--VBA_SALESCUBE_MINMAX.sql 2024-08-26_2039
+
+--SALESCUBE.sql 2024-08-23_1435
+
+--SALESCUBE_COMPONENTS/BASE_DEMAND.sql 2024-08-23_1431
+
+WITH DMD AS(
+
+--SALESCUBE_COMPONENTS/DMD.sql 2024-08-23_1427
+
+	SELECT NULL AS "DocEntry", NULL AS "LineNum", im."ItemCode", im."Warehouse" AS "WhsCode", w1."WhsCode" AS "RcvWhs", im."DocDate", im."DocDate" AS "ShipDate", 
+	(im."InQty"-im."OutQty") * -1 AS "Quantity", im."CardCode"
+	FROM OINM im
+	JOIN WTR1 w1 ON im."CreatedBy"=w1."DocEntry" AND im."DocLineNum"=w1."LineNum"
+	WHERE im."DocDate" >= ADD_DAYS(CURRENT_DATE, -550) 
+	AND im."Warehouse" IN('01') --From Warehouse
+	AND w1."WhsCode" IN('TruckStock') --To Warehouse (ie Truck Stock)
+	AND im."TransType"=67 
+	UNION ALL
+	SELECT
+	"DocEntry", "LineNum", "ItemCode", '03' AS "WhsCode", 'SALE' AS "RcvWhs", "DocDate", "ShipDate", "Quantity", "BaseCard" AS "CardCode"
+	FROM RDR1
+	WHERE
+	    "DocDate" >= ADD_DAYS(CURRENT_DATE, -550) 
+	    --AND "WhsCode" IN('01') 
+	    AND "Quantity" > 0 AND NOT ("LineStatus"='C' AND "TargetType" = -1) AND "LineStatus" IN ('O', 'C') AND "DropShip"='N' 
+
+--SALESCUBE_COMPONENTS/DMD.sql
+
+),
+ORDER1 AS (
+	SELECT
+	COUNT(*) OVER () AS total_row_count,
+	r1."DocEntry", r1."LineNum",
+	ai."ItemCode" AS "AltItemCode", i."ItemCode" AS "OrderItemCode", COALESCE(ai."ItemCode",i."ItemCode") AS "ItemCode", 
+	ai."PlaningSys" AS "AltPlaningSys", i."PlaningSys" AS "OrderPlaningSys", COALESCE(ai."PlaningSys",i."PlaningSys") AS "PlaningSys",
+	ai."LeadTime" AS "AltLeadTime", i."LeadTime" AS "OrderLeadTime", COALESCE(ai."LeadTime",i."LeadTime") AS "LeadTime",	
+	ai."OrdrIntrvl" AS "AltOrdrIntrvl", i."OrdrIntrvl" AS "OrderOrdrIntrvl", COALESCE(ai."OrdrIntrvl",i."OrdrIntrvl") AS "OrdrIntrvl",	
+	ai."OrdrMulti" AS "AltOrdrMulti", i."OrdrMulti" AS "OrderOrdrMulti", COALESCE(ai."OrdrMulti",i."OrdrMulti") AS "OrdrMulti",
+	acy."Name" AS "AltName", cy."Name" AS "OrderName", COALESCE(acy."Name",cy."Name") AS "Name",
+ 	a."Match", r1."Quantity" AS "OrderQuantity", CAST(CASE WHEN a."Match" IS NULL then "Quantity" ELSE 100/a."Match" * "Quantity" END AS INTEGER) AS "Quantity",
+	r1."CardCode" AS "CustCardCode", ai."CardCode" AS "AltVendCode", i."CardCode" AS "OrderVendCode", COALESCE(ai."CardCode",i."CardCode") AS "VendCode",
+	r1."WhsCode", r1."WhsCode" AS "ShipWhs", "DocDate", "ShipDate", a."Remarks", 	
+	i."RuleCode", iw."MinOrder",
+    ADD_MONTHS(TO_DATE(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE))), -12) AS "YrStartDate",
+    TO_DATE(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE))) AS "YrEndDate"
+	FROM DMD r1
+	LEFT JOIN OITM i ON r1."ItemCode"=i."ItemCode"
+	LEFT JOIN OITW iw ON r1."ItemCode"=iw."ItemCode" AND '03'=iw."WhsCode" 
+	LEFT JOIN OCRD c ON r1."CardCode"=c."CardCode"
+	LEFT JOIN OCYC cy ON cy."Code" = i."OrdrIntrvl" 
+	LEFT JOIN OALI a ON r1."ItemCode"=a."OrigItem" AND i."PlaningSys"='N'
+	LEFT JOIN OITM ai ON (a."AltItem"=ai."ItemCode" OR ai."ItemCode" IS NULL)  AND i."PlaningSys"='N'
+	LEFT JOIN OCYC acy ON acy."Code" = ai."OrdrIntrvl"	
+	WHERE i."LeadTime"<>0 AND i."LeadTime" IS NOT NULL AND cy."Name"<> 'NONSTOCK' AND NOT(i."PlaningSys"='N' AND ai."PlaningSys"='N')
+)
+
+--SALESCUBE_COMPONENTS/BASE_DEMAND.sql
+,
+LT_DATES AS (
+
+-- SALESCUBE_COMPONENTS/LT_DATES.sql 2024-08-02_1045a
+
+SELECT
+        LT."LeadTime",
+        WN."WkNum",
+        ADD_DAYS(WN."WkEndDate", -6) AS "WkStartDate",
+        WN."WkEndDate",
+        ADD_MONTHS(TO_DATE(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE))), -12) AS "YrStartDate",
+        TO_DATE(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE))) AS "YrEndDate",
+        ADD_DAYS(WN."WkEndDate", -1 * (FLOOR((LT."LeadTime" + 1) / 5) * 7 + MOD(LT."LeadTime" + 1, 5))) AS "LtStartDate",
+        WN."WkEndDate" AS "LtEndDate",
+        ADD_MONTHS(WN."WkEndDate", -12) AS "LtYrStartDate",
+        WN."WkEndDate" AS "LtYrEndDate",
+  		ADD_DAYS(ADD_YEARS(CURRENT_DATE, -1), 0*7) AS "LastYrToday",  --Used for Seasonal Beginning change 0 to shift weeks
+  		ADD_DAYS(ADD_DAYS(ADD_YEARS(CURRENT_DATE, -1), 0*7), CAST((LT."LeadTime" + 4) / 5 AS INTEGER) *7 ) AS "LastYrTodayLt"   --Used for Seasonal Beginning change 0 to shift weeks     
+    FROM (
+        SELECT 
+            TO_DATE(ADD_DAYS(CURRENT_DATE, -7 * (GENERATED_PERIOD_START - 1) + 7 - DAYOFWEEK(CURRENT_DATE))) AS "WkEndDate",
+            -1 * (GENERATED_PERIOD_START - 1) AS "WkNum"
+        FROM SERIES_GENERATE_INTEGER(1, 2, 54)
+    ) WN
+    JOIN (
+        SELECT GENERATED_PERIOD_START AS "LeadTime"
+        FROM SERIES_GENERATE_INTEGER(5, 4, 260)
+    ) LT ON 1 = 1
+    ORDER BY "WkEndDate" DESC, "WkNum" DESC, "LeadTime" ASC
+
+-- SALESCUBE_COMPONENTS/LT_DATES.sql
+
+),
+
+WH_LINE AS (
+
+-- SALESCUBE_COMPONENTS/WH_LINE.sql 2024-08-23_1435
+
+SELECT
+    t0."ItemCode",
+    t0."WhsCode",
+    ROW_NUMBER() OVER (PARTITION BY t0."ItemCode" ORDER BY t0."WhsCode") - 1 AS "WhLineNum",                     
+    t0."MinStock",
+    t0."MaxStock"       
+FROM OITW t0
+INNER JOIN OWHS t1 ON t0."WhsCode" = t1."WhsCode"
+WHERE t1."Inactive" = 'N' --AND t0."WhsCode" IN('01', '02', '03') 
+
+-- SALESCUBE_COMPONENTS/WH_LINE.sql 
+
+),
+WkSalesData AS (
+    SELECT 
+        r1."ItemCode",
+        r1."PlaningSys",        
+        r1."VendCode",
+        r1."WhsCode",                  
+        r1."RuleCode",
+        r1."OrdrIntrvl",
+        r1."Name",
+        wl."WhLineNum",
+        wl."MinStock",
+        wl."MaxStock",
+        ltd."LeadTime" AS "LtdLt",
+        r1."LeadTime" AS "OitmLt",
+        CAST((r1."LeadTime" + 4) / 5 AS INTEGER) * 5 - 1 AS "OitmAdjLt",
+        r1."OrdrMulti",
+        ltd."WkNum",
+        ltd."WkStartDate",
+        ltd."WkEndDate",
+        ltd."LtStartDate",
+        ltd."LtEndDate",
+        ltd."YrStartDate",
+        ltd."YrEndDate",
+        ltd."LtYrStartDate",
+        ltd."LtYrEndDate",
+        ltd."LastYrToday",        
+        ltd."LastYrTodayLt",
+        100 * SUM(1) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+            ORDER BY SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END)
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) / COUNT(*) OVER (PARTITION BY r1."ItemCode", r1."WhsCode") AS "LtQtyRowPct",
+        SUM(1) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+            ORDER BY SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END)
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) 
+        AS "LtQtyWk",
+        SUM(1) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+            ORDER BY SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtYrStartDate" AND ltd."LtYrEndDate" THEN r1."Quantity" ELSE 0 END)
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) 
+        AS "LtYrQtyWk",         
+        MAX(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."WkStartDate" AND ltd."WkEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+        ) AS "WkMaxQty",
+        SUM(CASE WHEN r1."DocDate" BETWEEN ltd."WkStartDate" AND ltd."WkEndDate" THEN r1."Quantity" ELSE 0 END) AS "WkQty",
+        SUM(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."WkStartDate" AND ltd."WkEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+            ORDER BY SUM(CASE WHEN r1."DocDate" BETWEEN ltd."WkStartDate" AND ltd."WkEndDate" THEN r1."Quantity" ELSE 0 END)
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS "WkQtyRt",
+        SUM(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."WkStartDate" AND ltd."WkEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+        ) AS "WkQtyGt",
+        100 * SUM(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."WkStartDate" AND ltd."WkEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+            ORDER BY SUM(CASE WHEN r1."DocDate" BETWEEN ltd."WkStartDate" AND ltd."WkEndDate" THEN r1."Quantity" ELSE 0 END)
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) / NULLIF(SUM(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."WkStartDate" AND ltd."WkEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+        ), 0) AS "WkQtyPct",
+        MAX(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+        ) AS "LtMaxQty",
+        SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END) AS "LtQty",
+        SUM(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+            ORDER BY SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END)
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS "LtQtyRt",
+        SUM(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+        ) AS "LtQtyGt",
+        100 * SUM(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+            ORDER BY SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END)
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) / NULLIF(SUM(CAST(SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END) AS INTEGER)) OVER (
+            PARTITION BY r1."ItemCode", r1."WhsCode"
+        ), 0) AS "LtQtyPct",
+        SUM(CASE WHEN r1."DocDate" BETWEEN ltd."YrStartDate" AND ltd."YrEndDate" THEN r1."Quantity" ELSE 0 END) AS "YrQty",
+        SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LtYrStartDate" AND ltd."LtEndDate" THEN r1."Quantity" ELSE 0 END) AS "YrLtQty",
+        SUM(CASE WHEN r1."DocDate" BETWEEN ltd."LastYrToday" AND ltd."LastYrTodayLt" THEN r1."Quantity" ELSE 0 END) AS "LastYrLtQty"     
+    FROM ORDER1 r1
+    LEFT JOIN LT_DATES ltd ON ltd."LeadTime" = CAST((r1."LeadTime" + 4) / 5 AS INTEGER) * 5 - 1
+    LEFT JOIN WH_LINE wl ON wl."ItemCode" = r1."ItemCode" AND wl."WhsCode" = r1."WhsCode"
+	GROUP BY 
+	    r1."PlaningSys", r1."ItemCode", r1."VendCode", r1."WhsCode", r1."RuleCode", wl."WhLineNum", r1."OrdrIntrvl", r1."Name", 
+	    wl."MinStock", wl."MaxStock", 
+	    ltd."LeadTime", r1."LeadTime", CAST((r1."LeadTime" + 4) / 5 AS INTEGER) * 5 - 1, r1."OrdrMulti", ltd."WkNum",
+	    ltd."WkStartDate", ltd."WkEndDate", ltd."LtStartDate", ltd."LtEndDate", ltd."YrStartDate", ltd."YrEndDate",
+	    ltd."LtYrStartDate", ltd."LtYrEndDate", ltd."LastYrToday", ltd."LastYrTodayLt"
+)
+
+-- SALESCUBE.sql
+
+,
+
+--SALESCUBE_MINMAX.sql Part1
+
+CALC AS (
+SELECT 
+	"ItemCode",
+	"VendCode",
+	"WhsCode",
+	"LastYrLtQty" AS "LtDmdSe",
+	CASE 
+	    WHEN "RuleCode" = 'SE' THEN GREATEST("LastYrLtQty", MIN(CASE WHEN "LtQtyWk" >= 50 THEN "LtQty" END))
+	    ELSE MIN(CASE WHEN "LtQtyWk" >= 50 THEN "LtQty" END)
+	END AS "LtDmd",
+	MIN(CASE WHEN "LtYrQtyWk" >= 50 THEN "YrLtQty" END) AS "LtYrDmd",
+    MIN(CASE WHEN "LtQtyRowPct">=50 THEN "LtQty" END) AS "LtDmd50",  	
+    MIN(CASE WHEN "LtQtyRowPct">=90 THEN "LtQty" END) AS "LtDmd90",     
+    MIN(CASE WHEN "LtQtyRowPct">=95 THEN "LtQty" END) AS "LtDmd95",
+    MIN(CASE WHEN "LtQtyRowPct">=99 THEN "LtQty" END) AS "LtDmd99",     
+    MIN(CASE WHEN "LtQtyRowPct">=100 THEN "LtQty" END) AS "LtDmd100",
+    MIN(CASE WHEN "LtQtyWk">=26 THEN "LtQty" END) AS "LtDmd26Wks",  	
+    MIN(CASE WHEN "LtQtyWk">=49 THEN "LtQty" END) AS "LtDmd49Wks",     
+    MIN(CASE WHEN "LtQtyWk">=50 THEN "LtQty" END) AS "LtDmd50Wks",
+    MIN(CASE WHEN "LtQtyWk">=51 THEN "LtQty" END) AS "LtDmd51Wks",     
+    MIN(CASE WHEN "LtQtyWk">=52 THEN "LtQty" END) AS "LtDmd52Wks"    
+FROM WkSalesData wsd
+GROUP BY "ItemCode", "VendCode", "WhsCode", "LastYrLtQty", "RuleCode" --, "PlaningSys", "WhLineNum", "MinStock", "MaxStock", "LtdLt", "OrdrMulti", "WkMaxQty", "YrQty", "RuleCode"
+),
+
+--SALESCUBE_MINMAX.sql Part1
+
+--SALESCUBE_MINMAX.sql Part2
+MIN AS (
+
+SELECT
+    wsd."ItemCode",
+    wsd."WhsCode", 
+    CAST(wsd."YrQty" AS INTEGER) AS "YrQty",     
+    CASE WHEN wsd."Name"='NONSTOCK' THEN 0 ELSE CAST("YrQty"/52 AS INTEGER) END AS "WkFctQty",  
+    CAST(CASE
+    	WHEN wsd."Name"='NONSTOCK' OR "PlaningSys"<>'M' THEN 0 
+    	ELSE CAST("YrQty"/52 * ("LtdLt"+1)/5 - CAST("YrQty"/52 AS INTEGER) * ("LtdLt"+1)/5 + 1 AS INTEGER) + GREATEST(0, CALC."LtDmd" - CAST("YrQty" / 52 AS INTEGER) * ("LtdLt" + 1) / 5) + CAST("YrQty"/52 AS INTEGER)
+    END AS INTEGER) AS "MinimalStock",  
+    CAST(CASE
+    	WHEN wsd."Name"='NONSTOCK' OR "PlaningSys"<>'M' THEN "OrdrMulti"          
+		ELSE CAST("YrQty"/52 * ("LtdLt"+1)/5 - CAST("YrQty"/52 AS INTEGER) * ("LtdLt"+1)/5 + 1 AS INTEGER) + GREATEST(0, CALC."LtDmd" - CAST("YrQty"/52 AS INTEGER) * ("LtdLt"+1)/5) + CAST("YrQty"/52 AS INTEGER)
+    	+ CASE WHEN "OrdrMulti"=1 THEN 0 ELSE "OrdrMulti" END
+    END AS INTEGER) AS "MaximalStock",
+    99999 AS "BeginCalc",
+    CAST("YrQty"/52 * ("LtdLt"+1)/5 - CAST("YrQty"/52 AS INTEGER) * ("LtdLt"+1)/5 + 1 AS INTEGER) AS "LtMinRounding",
+    CAST(CALC."LtDmd" AS INTEGER) AS "DMD50Wks",
+    CAST(CAST("YrQty"/52 AS INTEGER) * ("LtdLt"+1)/5 * -1 AS INTEGER) AS "Fct90Dmd",
+    CAST("YrQty"/52 AS INTEGER) AS "WklyDmd", 
+    99999 AS "EndCalc",
+	--CAST(CALC."LtDmd50" AS INTEGER) AS "LtDmd50", 
+	--CAST(CALC."LtDmd90" AS INTEGER) AS "LtDmd90", 
+	--CAST(CALC."LtDmd95" AS INTEGER) AS "LtDmd95", 
+	--CAST(CALC."LtDmd99" AS INTEGER) AS "LtDmd99", 
+	--CAST(CALC."LtDmd100" AS INTEGER) AS "LtDmd100",
+	CAST(CALC."LtDmdSe" AS INTEGER) AS "LtDmdSe",
+	CAST(CALC."LtDmd26Wks" AS INTEGER) AS "LtDmd26Wks", 
+	CAST(CALC."LtDmd49Wks" AS INTEGER) AS "LtDmd49Wks", 
+	CAST(CALC."LtDmd50Wks" AS INTEGER) AS "LtDmd50Wks", 
+	CAST(CALC."LtDmd51Wks" AS INTEGER) AS "LtDmd51Wks", 
+	CAST(CALC."LtDmd52Wks" AS INTEGER) AS "LtDmd52Wks",    
+    CAST(CAST("YrQty"/52 AS INTEGER) * ("LtdLt"+1)/5 AS INTEGER) AS "LtFctQty",    	          
+    wsd."VendCode",
+    wsd."Name",
+    "OrdrIntrvl",
+	"PlaningSys",	
+	CAST("MinStock" AS INTEGER) AS "MinStock",
+	CAST("MaxStock" AS INTEGER) AS "MaxStock",
+	'1' AS "Key",
+    CAST(("LtdLt"+1)/5 AS INTEGER) AS "KeyWks",	
+    "LtdLt",
+    --"OrdrMulti",
+    "WhLineNum",   
+    CAST("LtYrDmd" AS INTEGER) AS "LtYrDmd",    
+    "RuleCode"
+FROM WkSalesData wsd
+JOIN Calc ON wsd."ItemCode"=calc."ItemCode" and wsd."WhsCode"=calc."WhsCode"
+GROUP BY wsd."ItemCode", wsd."VendCode", wsd."WhsCode", "PlaningSys", wsd."Name", "OrdrIntrvl", "RuleCode", "WhLineNum", "MinStock", "MaxStock", "LtdLt", "OrdrMulti", "WkMaxQty", "YrQty", "LtYrDmd",
+CALC."LtDmdSe", CALC."LtDmd50", CALC."LtDmd90", CALC."LtDmd95", CALC."LtDmd99", CALC."LtDmd100", CALC."LtDmd", CALC."LtDmd26Wks", CALC."LtDmd49Wks", CALC."LtDmd50Wks", CALC."LtDmd51Wks", CALC."LtDmd52Wks"
+
+--SALESCUBE_MINMAX.sql Part2
+
+--SALESCUBE_MINMAX.sql ALL M
+
+HAVING 
+	    CASE
+	    	WHEN wsd."Name"='NONSTOCK' OR "PlaningSys"<>'M' THEN 0 
+	    	ELSE CAST("YrQty"/52 * ("LtdLt"+1)/5 - CAST("YrQty"/52 AS INTEGER) * ("LtdLt"+1)/5 + 1 AS INTEGER) + GREATEST(0, CALC."LtDmd" - CAST("YrQty" / 52 AS INTEGER) * ("LtdLt" + 1) / 5) + CAST("YrQty"/52 AS INTEGER)
+	    END  <> "MinStock"
+    	OR
+	    CASE
+	    	WHEN wsd."Name"='NONSTOCK' OR "PlaningSys"<>'M' THEN "OrdrMulti"          
+			ELSE CAST("YrQty"/52 * ("LtdLt"+1)/5 - CAST("YrQty"/52 AS INTEGER) * ("LtdLt"+1)/5 + 1 AS INTEGER) + GREATEST(0, CALC."LtDmd" - CAST("YrQty" / 52 AS INTEGER) * ("LtdLt" + 1) / 5) + CAST("YrQty"/52 AS INTEGER)
+	    	+ CASE WHEN "OrdrMulti"=1 THEN 0 ELSE "OrdrMulti" END
+	    END <> "MaxStock"
+    	OR ("PlaningSys"<>'M' AND "MinStock"<>0 AND "MaxStock"<>0)
+)
+SELECT 'ParentKey' AS "ParentKey", 'LineNum' AS "LineNum", 'MinimalStock' AS "MinimalStock", 'MaximalStock' AS "MaximalStock"  FROM DUMMY UNION ALL 
+SELECT "ItemCode" AS "ParentKey", CAST("WhLineNum" AS VARCHAR) AS "LineNum" , CAST("MinimalStock" AS VARCHAR) AS "MinimalStock", CAST("MaximalStock" AS VARCHAR) AS "MaximalStock"
+FROM MIN   	
+--SALESCUBE_MINMAX.sql    	
