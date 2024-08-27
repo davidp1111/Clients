@@ -1,3 +1,4 @@
+-- AXIS/SQL_LEADTIME.txt 2024-08-27_1153
 -- VBA_SUPPLYCHAINCUBE_LEADTIME.sql 2024-08-26_1949
 
 -- SUPPLYCHAINCUBE.sql 2024-08-03_1115a
@@ -173,7 +174,8 @@ SELECT
     CASE 
 	    WHEN "PurFactor1" >= 1 THEN 95 
 	    ELSE "PurFactor1" * 100
-	END AS "LT_Pct" 
+	END AS "LT_Pct",
+	"SalFactor1", "SalFactor2", "SalFactor3", "SalFactor4", "PurFactor1", "PurFactor2", "PurFactor3", "PurFactor4"
 FROM OPOR po
 LEFT JOIN POR1 po1 ON po1."DocEntry"=po."DocEntry" AND po1."TargetType" <> 22 AND NOT (po1."TargetType" = -1 AND po1."LineStatus" = 'C') 
 FULL OUTER JOIN PDN1 pd1 ON po1."DocEntry" = pd1."BaseEntry" AND po1."LineNum" = pd1."BaseLine" AND po1."ObjType" = pd1."BaseType" AND pd1."ObjType" <> 22
@@ -268,10 +270,11 @@ SELECT
     		 MIN(CASE WHEN "QuantityPct" >= 100 THEN "ActDelWDays" END) 
     		 AND MAX(CASE WHEN "GrRowNum"=1 THEN "ActDelWDays" END)>23
         THEN 'Y' 
-    END "MaxLastRct"   
+    END "MaxLastRct",
+    "SalFactor1", "SalFactor2", "SalFactor3", "SalFactor4", "PurFactor1", "PurFactor2", "PurFactor3", "PurFactor4"  
 FROM SCC   
-GROUP BY "PlaningSys", "OrdrIntrvl", "Name", "RuleCode", "ItemCode", "LeadTime", "CardCode"
-HAVING "LeadTime"<>
+GROUP BY "PlaningSys", "OrdrIntrvl", "Name", "RuleCode", "ItemCode", "LeadTime", "CardCode", "SalFactor1", "SalFactor2", "SalFactor3", "SalFactor4", "PurFactor1", "PurFactor2", "PurFactor3", "PurFactor4" 
+HAVING "LeadTime" <>
     CAST(GREATEST(
         COALESCE(CASE            
             WHEN COALESCE(MAX("PoCurWDays"),0) <= 0 THEN 1
@@ -284,7 +287,7 @@ HAVING "LeadTime"<>
         END - 1, "LeadTime")
     ) AS VARCHAR)
 )
-SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime" FROM DUMMY UNION ALL 
-SELECT "ItemCode", "LeadTime" FROM LT
+SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime", 'PurFactor2' AS "PurchaseFactor2"  FROM DUMMY UNION ALL 
+SELECT "ItemCode", "LeadTime", CAST("OITM_LeadTime" AS VARCHAR) AS "PurchaseFactor2"  FROM LT
 
 -- VBA_SUPPLYCHAINCUBE_LEADTIME.sql
