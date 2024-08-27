@@ -1,3 +1,4 @@
+--SQL_FORECAST.txt 2024-08-27 1748
 --VBA_SALESCUBE_FCT_WKLY.sql 2024-08-26_0031
 
 --SALESCUBE_COMPONENTS/BASE_DEMAND.sql 2024-08-23_1431
@@ -94,31 +95,39 @@ SELECT
     -- Total number of rows in the result set, repeated in every row
     COUNT(*) OVER () AS "TotalRows",
     (COUNT(*) OVER ())/52 AS "TotalItems",
-    F."AbsID",    
+    
+    
+    
+    -- AbsID
+    IFNULL(F1."AbsID",F."AbsID") AS "AbsID",
+
+	-- LineID       
     F1."LineID" - 1 AS "LineID",
-    CASE 
-        WHEN f1."LineID" IS NULL THEN TO_VARCHAR(ADD_DAYS(CURRENT_DATE, GENERATED_PERIOD_START), 'YYYYMMDD') 
-        ELSE NULL
-    END AS "Date",
-    COALESCE(WF."ItemCode", F1."ItemCode") AS "FCT1_ItemCode",     
-    CASE 
-	    WHEN COALESCE(F1."Quantity", 0) = COALESCE(WF."WkFctQty", 0) 
-	    THEN NULL 
-	ELSE COALESCE(WF."ItemCode", F1."ItemCode") 
-	END AS "ItemCode",
-    COALESCE(WF."WhsCode", F1."WhsCode") AS "FCT1_WhsCode",	       
-    CASE 
-	    WHEN COALESCE(F1."Quantity", 0) = COALESCE(WF."WkFctQty", 0) 
-	    THEN NULL 
-	ELSE COALESCE(WF."WhsCode", F1."WhsCode")
-	END AS "WhsCode",             
+	ROW_NUMBER() OVER (
+	    PARTITION BY COALESCE(F1."AbsID", F."AbsID") 
+	    ORDER BY 
+	        CASE 
+	            WHEN F1."LineID" IS NULL THEN 1 
+	            ELSE 0 
+	        END, 
+	        F1."LineID"
+	) - 1 AS "CALC_LineID", 
+    
+    -- Quantity	                   
     COALESCE(F1."Quantity", 0) AS FCT1_QTY,
-    WF."WkFctQty" AS WF_QTY,
-	CASE 
-	    WHEN COALESCE(F1."Quantity", 0) = COALESCE(WF."WkFctQty", 0) 
-	    THEN NULL 
-	    ELSE WF."WkFctQty" 
-	END AS "WkFctQty",
+    IFNULL(WF."WkFctQty",0) AS "WkFctQty",    
+
+	--Date          
+    TO_CHAR("Date", 'YYYYMMDD') AS "FCT1_Date", 
+    IFNULL(TO_VARCHAR(ADD_DAYS(CURRENT_DATE, GENERATED_PERIOD_START), 'YYYYMMDD'), TO_CHAR("Date", 'YYYYMMDD')) AS "Date",
+     
+    -- ItemCode
+    COALESCE(WF."ItemCode", F1."ItemCode") AS "ItemCode",     
+
+	-- Warehouse
+    COALESCE(WF."WhsCode", F1."WhsCode") AS "WhsCode",
+	
+	
     MIN(COALESCE(F1."Quantity", 0)) OVER (PARTITION BY F."AbsID", COALESCE(WF."ItemCode", F1."ItemCode")) AS "MinItemFctQty",
     MAX(COALESCE(F1."Quantity", 0)) OVER (PARTITION BY F."AbsID", COALESCE(WF."ItemCode", F1."ItemCode")) AS "MaxItemFctQty",      
     "Code",
@@ -155,9 +164,9 @@ FULL OUTER JOIN FCT1 F1 ON
 LEFT JOIN OITM i ON i."ItemCode" = COALESCE(WF."ItemCode", F1."ItemCode")    
 
 WHERE 	COALESCE(F1."ItemCode", WF."ItemCode") IS NOT NULL 
-		AND F."AbsID" = 7
+		AND IFNULL(F."AbsID", F1."AbsID") = 7
 		--AND COALESCE(F1."Quantity", 0) <> COALESCE(WF."WkFctQty", 0)
-ORDER BY F."AbsID", "ItemCode", F1."LineID"
+ORDER BY COALESCE(F."AbsID", F1."AbsID"), F1."LineID"
 )
 SELECT 
 	'ParentKey' AS "ParentKey", 'LineNum' AS "LineNum", 'Quantity' AS "Quantity", 
@@ -166,7 +175,7 @@ FROM DUMMY
 UNION ALL
 SELECT     
 	CAST("AbsID" AS VARCHAR) AS "Numerator", 
-    CAST("LineID" AS VARCHAR) AS "LineNum", 
+    CAST("CALC_LineID" AS VARCHAR) AS "LineNum", 
     CAST("WkFctQty" AS VARCHAR) AS "Quantity", 
     CAST("Date" AS VARCHAR) AS "Date", 
     "ItemCode" AS "ItemCode", 
