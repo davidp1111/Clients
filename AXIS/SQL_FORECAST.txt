@@ -115,7 +115,7 @@ SELECT
 	) - 1 AS "CALC_LineID", 
     
     -- Quantity	                   
-    COALESCE(F1."Quantity", 0) AS FCT1_QTY,
+    COALESCE(F1."Quantity", 0) AS "FCT1_WkFctQty",
     IFNULL(WF."WkFctQty",0) AS "WkFctQty",    
 
 	--Date          
@@ -182,3 +182,4 @@ SELECT
     "ItemCode" AS "ItemCode", 
     "WhsCode" AS "Warehouse"
 FROM FCT_VBA
+WHERE "WkFctQty"<>"FCT1_WkFctQty"
