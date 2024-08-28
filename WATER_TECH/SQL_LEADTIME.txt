@@ -1,0 +1,293 @@
+-- AXIS/SQL_LEADTIME.txt 2024-08-27_1253
+-- VBA_SUPPLYCHAINCUBE_LEADTIME.sql 2024-08-26_1949
+
+-- SUPPLYCHAINCUBE.sql 2024-08-03_1115a
+
+-- BASE_SUPPLYCHAINCUBE_OITMCHGS.sql  2024-08-23_1352
+
+WITH CHANGE_LOG AS(
+
+--SUPPLYCHAINCUBE_COMPONENTS/CHANGE_LOG.sql 2024-08-23_1347
+
+SELECT i."ItemCode", iw."WhsCode", iw."MinStock", iw."MaxStock", i."PlaningSys", i."PrcrmntMtd", i."OrdrIntrvl", i."OrdrMulti", i."MinOrdrQty", i."LeadTime",
+    CASE 
+        WHEN LENGTH(i."UpdateTS") BETWEEN 5 AND 6 THEN
+            TO_TIMESTAMP(
+                TO_VARCHAR(i."UpdateDate", 'YYYY-MM-DD') || ' ' ||
+                LPAD(SUBSTRING(i."UpdateTS", 1, CASE WHEN LENGTH(i."UpdateTS") = 5 THEN 1 ELSE 2 END), 2, '0') || ':' || 
+                LPAD(SUBSTRING(i."UpdateTS", CASE WHEN LENGTH(i."UpdateTS") = 5 THEN 2 ELSE 3 END, 2), 2, '0') || ':' || 
+                LPAD(SUBSTRING(i."UpdateTS", CASE WHEN LENGTH(i."UpdateTS") = 5 THEN 4 ELSE 5 END, 2), 2, '0'),
+                'YYYY-MM-DD HH24:MI:SS')
+         ELSE
+            i."UpdateDate"
+    END AS "UpdateLogTS"                     
+FROM OITM i
+JOIN OITW iw ON i."ItemCode"=iw."ItemCode"
+UNION ALL
+SELECT DISTINCT i."ItemCode", iw."WhsCode", iw."MinStock", iw."MaxStock", i."PlaningSys", i."PrcrmntMtd", i."OrdrIntrvl", i."OrdrMulti", i."MinOrdrQty", i."LeadTime",
+    CASE 
+        WHEN LENGTH(i."UpdateTS") BETWEEN 5 AND 6 THEN
+            TO_TIMESTAMP(
+                TO_VARCHAR(i."UpdateDate", 'YYYY-MM-DD') || ' ' ||
+                LPAD(SUBSTRING(i."UpdateTS", 1, CASE WHEN LENGTH(i."UpdateTS") = 5 THEN 1 ELSE 2 END), 2, '0') || ':' || 
+                LPAD(SUBSTRING(i."UpdateTS", CASE WHEN LENGTH(i."UpdateTS") = 5 THEN 2 ELSE 3 END, 2), 2, '0') || ':' || 
+                LPAD(SUBSTRING(i."UpdateTS", CASE WHEN LENGTH(i."UpdateTS") = 5 THEN 4 ELSE 5 END, 2), 2, '0'),
+                'YYYY-MM-DD HH24:MI:SS')
+         ELSE
+            TO_VARCHAR(ADD_SECONDS(i."UpdateDate", i."LogInstanc" * 60), 'YYYY-MM-DD HH24:MI:SS')  -- or NULL if you prefer not to default to UpdateDate
+    END AS "UpdateLogTS"   
+FROM AITM i
+JOIN AITW iw ON i."ItemCode"=iw."ItemCode" AND i."LogInstanc"=iw."logInstanc"
+
+--SUPPLYCHAINCUBE_COMPONENTS/CHANGE_LOG.sql
+
+),
+DOC_HIST AS(
+
+--SUPPLYCHAINCUBE_COMPONENTS/DOC_HIST.sql 2024-08-23_1348
+
+SELECT d1."ObjType", d."DocNum", d1."DocEntry", d1."LineNum", d."OriginType", d1."ItemCode", d1."ShipDate", "OriginType"
+FROM ADO1 d1
+JOIN ADOC d ON d."ObjType"=d1."ObjType" AND d."DocEntry"=d1."DocEntry" AND d."LogInstanc"=d1."LogInstanc"
+WHERE d1."ObjType"='22' AND d1."LogInstanc"=1
+
+--SUPPLYCHAINCUBE_COMPONENTS/DOC_HIST.sql
+
+),
+PO_HIST AS(
+SELECT 
+p1."ItemCode", p1."WhsCode", p."OriginType", p."DocNum", p1."ObjType", p1."DocEntry", p1."LineNum",
+CASE 
+    WHEN LENGTH(p."CreateTS") BETWEEN 5 AND 6 
+    THEN TO_TIMESTAMP(
+        TO_VARCHAR(p."CreateDate", 'YYYY-MM-DD') || ' ' ||
+        LPAD(SUBSTRING(p."CreateTS", 1, CASE WHEN LENGTH(p."CreateTS") = 5 THEN 1 ELSE 2 END), 2, '0') || ':' || 
+        LPAD(SUBSTRING(p."CreateTS", CASE WHEN LENGTH(p."CreateTS") = 5 THEN 2 ELSE 3 END, 2), 2, '0') || ':' || 
+        LPAD(SUBSTRING(p."CreateTS", CASE WHEN LENGTH(p."CreateTS") = 5 THEN 4 ELSE 5 END, 2), 2, '0'),
+        'YYYY-MM-DD HH24:MI:SS')
+	ELSE null 
+END AS "CurrPOCreateTS", TO_VARCHAR(p."DocDate", 'MM/DD/YYYY') AS "OrigPODocDate",
+CASE
+    WHEN p."OriginType" <> 'R'
+    THEN TO_TIMESTAMP(TO_VARCHAR(p."DocDate", 'MM/DD/YYYY'), 'MM/DD/YYYY')
+    ELSE TO_TIMESTAMP(TO_VARCHAR(ADD_DAYS(dh."ShipDate", (cl."LeadTime"+1)/5*-7+1), 'MM/DD/YYYY'), 'MM/DD/YYYY') 
+END AS "OrigPOReleaseDate",
+TO_VARCHAR(dh."ShipDate", 'MM/DD/YYYY') AS "OrigPOShipDate", cl."UpdateLogTS", cl."PlaningSys", cl."PrcrmntMtd", cl."OrdrIntrvl", cl."OrdrMulti", cl."MinOrdrQty", cl."LeadTime", (cl."LeadTime"+1)/5*7 AS "LeadTimeWeeks", cl."MinStock", cl."MaxStock"
+FROM POR1 p1
+JOIN OPOR p ON p."DocEntry"=p1."DocEntry"
+LEFT JOIN DOC_HIST dh ON dh."DocEntry"=p1."DocEntry" AND dh."LineNum"=p1."LineNum"
+LEFT JOIN CHANGE_LOG cl ON cl."ItemCode" = p1."ItemCode" AND p1."WhsCode"=cl."WhsCode" AND cl."UpdateLogTS" = (
+    SELECT MAX(cl2."UpdateLogTS")
+    FROM CHANGE_LOG cl2
+    WHERE p1."ItemCode" = cl2."ItemCode" AND p1."WhsCode"=cl2."WhsCode" AND cl2."UpdateLogTS" < 
+        CASE 
+	        WHEN LENGTH(p."CreateTS") BETWEEN 5 AND 6 
+	        THEN TO_TIMESTAMP(
+		        TO_VARCHAR(p."CreateDate", 'YYYY-MM-DD') || ' ' ||
+		        LPAD(SUBSTRING(p."CreateTS", 1, CASE WHEN LENGTH(p."CreateTS") = 5 THEN 1 ELSE 2 END), 2, '0') || ':' || 
+		        LPAD(SUBSTRING(p."CreateTS", CASE WHEN LENGTH(p."CreateTS") = 5 THEN 2 ELSE 3 END, 2), 2, '0') || ':' || 
+		        LPAD(SUBSTRING(p."CreateTS", CASE WHEN LENGTH(p."CreateTS") = 5 THEN 4 ELSE 5 END, 2), 2, '0'),
+		        'YYYY-MM-DD HH24:MI:SS')
+	    	ELSE null END)
+),
+
+-- BASE_SUPPLYCHAINCUBE_OITMCHGS.sql
+
+SCC AS(
+SELECT 
+	COUNT(*) OVER () AS total_row_count,
+	i."ItemCode",
+    i."CardCode",
+	iw."WhsCode", 
+	9999999 AS OITM,
+	COALESCE(i."LeadTime", 0) AS "LeadTime",
+    i."PlaningSys",
+    i."OrdrIntrvl",
+    cyc."Name",
+    i."RuleCode",    
+    9999999 AS OITW, iw."OnHand", COALESCE(iw."AvgPrice", 0) AS "AvgPrice", iw."StockValue", 
+    9999999 AS PDN1, 
+	CASE WHEN pd1."ItemCode" IS NULL THEN NULL ELSE ROW_NUMBER() OVER (PARTITION BY pd1."ItemCode" ORDER BY pd1."ActDelDate" DESC, p."DocDate" DESC) END AS "GrRowNum",
+	p."DocNum" AS "GrDocNum", pd1."DocEntry" AS "GrDocEntry", pd1."LineNum" AS "GrLineNum", TO_NVARCHAR(p."DocDate", 'MM/DD/YYYY') AS "GrDocDate", pd1."Quantity", pd1."InvQty", 
+    9999999 AS OPOR, 
+	ROW_NUMBER() OVER (PARTITION BY po1."ItemCode" ORDER BY COALESCE(pd1."ActDelDate", po1."ShipDate") DESC) AS "PoRowNum", po."OriginType",
+	po."DocNum" AS "PoDocNum", po1."DocEntry" AS "PoDocEntry", po1."LineNum" AS "PoLineNum", TO_NVARCHAR(po."DocDate", 'MM/DD/YYYY') AS "PoDocDate", ph."OrigPOReleaseDate", TO_NVARCHAR(po1."ShipDate", 'MM/DD/YYYY') AS "PoShipDate", po."CreateTS" AS "PoCreateTS", 
+	po1."Quantity" AS "PoQuantity", po1."InvQty" AS "PoInvQty", --po1."ItemCode" AS "PoItemCode",
+    9999999 AS OINM, 
+	CAST(CASE
+	        WHEN im."CalcPrice" = 0 THEN im."Balance"
+	        ELSE im."Balance" / im."CalcPrice"-im."InQty"+im."OutQty"
+    END AS INTEGER) AS "PreRcvOH", 
+    CAST(CASE
+	        WHEN im."CalcPrice" = 0 THEN im."Balance"
+	        ELSE im."Balance" / im."CalcPrice"
+    END AS INTEGER) AS "PostRcvOH",
+    CAST((DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") -
+        (FLOOR((DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") + DAYOFWEEK(ph."OrigPOReleaseDate")) / 7) * 2) -
+        (CASE WHEN DAYOFWEEK(ph."OrigPOReleaseDate") = 1 THEN 1 ELSE 0 END) -
+        (CASE WHEN DAYOFWEEK(pd1."ActDelDate") = 7 THEN 1 ELSE 0 END)
+    ) AS INTEGER) AS "ActDelWDays",
+    CAST((DAYS_BETWEEN(po."DocDate", po1."ShipDate") -
+        (FLOOR((DAYS_BETWEEN(po."DocDate", po1."ShipDate") + DAYOFWEEK(po."DocDate")) / 7) * 2) -
+        (CASE WHEN DAYOFWEEK(po."DocDate") = 1 THEN 1 ELSE 0 END) -
+        (CASE WHEN DAYOFWEEK(po1."ShipDate") = 7 THEN 1 ELSE 0 END)
+    ) AS INTEGER) AS "PoDelWDays",  
+    CAST(CASE WHEN pd1."ItemCode" IS NOT NULL THEN NULL ELSE
+    (DAYS_BETWEEN(CURRENT_DATE, po1."ShipDate") -
+        (FLOOR((DAYS_BETWEEN(CURRENT_DATE, po1."ShipDate") + DAYOFWEEK(CURRENT_DATE)) / 7) * 2) -
+        (CASE WHEN DAYOFWEEK(CURRENT_DATE) = 1 THEN 1 ELSE 0 END) -
+        (CASE WHEN DAYOFWEEK(po1."ShipDate") = 7 THEN 1 ELSE 0 END)
+    ) END AS INTEGER) AS "PoCurWDays",       
+    CAST(
+        ROUND(
+            SUM(CAST(pd1."Quantity" AS INTEGER)) OVER (
+                PARTITION BY pd1."ItemCode" ORDER BY 
+                    DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") - 
+                    (FLOOR((DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") + DAYOFWEEK(ph."OrigPOReleaseDate")) / 7) * 2) -
+                    (CASE WHEN DAYOFWEEK(ph."OrigPOReleaseDate") = 1 THEN 1 ELSE 0 END) -
+                    (CASE WHEN DAYOFWEEK(pd1."ActDelDate") = 7 THEN 1 ELSE 0 END) ASC,
+                p."DocNum" ASC
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) / NULLIF(SUM(CAST(pd1."Quantity" AS INTEGER)) OVER (PARTITION BY pd1."ItemCode"), 0), 2
+        ) * 100 AS INTEGER
+    ) AS "QuantityPct",    
+    CAST(DAYS_BETWEEN(pd1."ActDelDate", CURRENT_DATE) AS INTEGER) AS "DelToCurrDays",
+    CAST(pd1."Quantity" AS INTEGER) AS "Quantity",
+    SUM(CAST(pd1."Quantity" AS INTEGER)) OVER (
+        PARTITION BY pd1."ItemCode" ORDER BY 
+        DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") ASC, p."DocNum" ASC
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS "QuantityRT",
+    SUM(CAST(pd1."Quantity" AS INTEGER)) OVER (PARTITION BY pd1."ItemCode") AS "QuantityGT",
+    CAST(pd1."LineTotal" AS INTEGER) AS "LineTotal",
+    SUM(CAST(pd1."LineTotal" AS INTEGER)) OVER (
+        PARTITION BY pd1."ItemCode" ORDER BY pd1."ActDelDate" ASC
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS "LineTotalRT",    
+    SUM(CAST(pd1."LineTotal" AS INTEGER)) OVER (PARTITION BY pd1."ItemCode") AS "LineTotalGT",
+    DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") AS "ActDelDays",
+    CAST(
+        AVG(DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate")) OVER (PARTITION BY pd1."ItemCode") AS INTEGER
+    ) AS "LtAvg12M",
+    MIN(DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate")) OVER (PARTITION BY pd1."ItemCode") AS "LtMin12M",
+    MAX(DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate")) OVER (PARTITION BY pd1."ItemCode") AS "LtMax12M",
+    CASE 
+	    WHEN "PurFactor1" >= 1 THEN 95 
+	    ELSE "PurFactor1" * 100
+	END AS "LT_Pct",
+	"SalFactor1", "SalFactor2", "SalFactor3", "SalFactor4", "PurFactor1", "PurFactor2", "PurFactor3", "PurFactor4"
+FROM OPOR po
+LEFT JOIN POR1 po1 ON po1."DocEntry"=po."DocEntry" AND po1."TargetType" <> 22 AND NOT (po1."TargetType" = -1 AND po1."LineStatus" = 'C') 
+FULL OUTER JOIN PDN1 pd1 ON po1."DocEntry" = pd1."BaseEntry" AND po1."LineNum" = pd1."BaseLine" AND po1."ObjType" = pd1."BaseType" AND pd1."ObjType" <> 22
+LEFT JOIN OPDN p ON pd1."DocEntry" = p."DocEntry" AND pd1."ObjType" = p."ObjType"
+LEFT JOIN OINM im ON im."CreatedBy"=pd1."DocEntry" AND im."DocLineNum"=pd1."LineNum" and "TransType"=20
+JOIN OITM i ON i."ItemCode" = COALESCE(pd1."ItemCode", po1."ItemCode")
+LEFT JOIN OCYC cyc ON i."OrdrIntrvl"=cyc."Code"
+LEFT JOIN OITW iw ON iw."ItemCode" = COALESCE(pd1."ItemCode", po1."ItemCode") AND iw."WhsCode"=COALESCE(pd1."WhsCode", po1."WhsCode")
+LEFT JOIN PO_HIST ph ON po1."DocEntry"=ph."DocEntry" AND po1."LineNum"=ph."LineNum"
+WHERE
+COALESCE(p."CANCELED",'0')<>'Y'  --Exclude Cancelled POs
+AND COALESCE(po."CANCELED",'0')<>'Y'
+AND COALESCE(pd1."TargetType",0) <> 20
+AND COALESCE(po1."TargetType",0)<> 22
+AND (NOT (pd1."TargetType" = -1 AND pd1."LineStatus" = 'C') OR pd1."TargetType" Is NULL)
+AND (NOT (po1."TargetType" = -1 AND po1."LineStatus" = 'C') OR po1."TargetType" Is NULL)
+AND (pd1."ActDelDate" BETWEEN ADD_MONTHS(CURRENT_DATE, -12) AND CURRENT_DATE OR pd1."ActDelDate" IS NULL)
+--AND NOT(po."OriginType"<>'R' AND cyc."Name"='MULTI')  --Removes MULTI items not created by MRP
+--Test Multi in this scenario where not M..make sure line is not supressed when Name is null but MULTI is removed when not MRP
+AND (cyc."Name" IS NULL OR NOT (po."OriginType"<>'R' AND cyc."Name"='MULTI'))
+
+--AND i."PlaningSys" = 'M' -- Keep off unless limiting to Planned only for diagnostics
+ORDER BY COALESCE(pd1."ItemCode",po1."ItemCode"), COALESCE(pd1."ActDelDate", po1."ShipDate")
+
+-- SUPPLYCHAINCUBE.sql
+
+),
+LT AS(
+SELECT
+    "ItemCode",
+    "CardCode",
+	"PlaningSys",
+	"OrdrIntrvl",
+	"Name",
+	"RuleCode",
+    CASE WHEN "LeadTime"=0 THEN 999 ELSE "LeadTime" END AS "OITM_LeadTime",
+    COUNT(DISTINCT CASE WHEN "GrDocNum" IS NOT NULL THEN "PoDocNum" END) AS "PO",
+    COUNT(CASE WHEN "PreRcvOH" = 0 THEN 1 END) AS "SO",
+    CAST(
+    CASE
+        WHEN COUNT(DISTINCT CASE WHEN "GrDocNum" IS NOT NULL THEN "PoDocNum" END) = 0 THEN 0
+        ELSE COUNT(CASE WHEN "PreRcvOH" = 0 THEN 1 END) / COUNT(DISTINCT CASE WHEN "GrDocNum" IS NOT NULL THEN "PoDocNum" END)
+    END *100 AS INTEGER) AS "SO%",  
+    COALESCE(CASE       
+        WHEN COALESCE(MAX("PoCurWDays"),0) <= 0 THEN 1
+        ELSE CEILING(MAX("PoCurWDays") / 5.0) * 5
+    END - 1,0) AS "PoLTUpdate",    
+    COALESCE(CASE 
+        WHEN "PlaningSys" <> 'M' AND "LeadTime" <> 0 THEN 1
+        WHEN MAX(CASE WHEN "GrRowNum" <= 2 THEN "ActDelWDays" END) > MIN(CASE WHEN "QuantityPct" >= 95 THEN "ActDelWDays" END)
+        THEN CEILING(MAX(CASE WHEN "GrRowNum" <= 2 THEN "ActDelWDays" END) / 5.0) * 5
+        ELSE CEILING(MIN(CASE WHEN "QuantityPct" >= 95 THEN "ActDelWDays" END) / 5.0) * 5
+    END - 1,0) AS "GrLTUpdate",
+    CAST(GREATEST(
+        COALESCE(CASE            
+            WHEN COALESCE(MAX("PoCurWDays"),0) <= 0 THEN 1
+            ELSE CEILING(MAX("PoCurWDays") / 5.0) * 5
+        END - 1, "LeadTime"),
+        COALESCE(CASE 
+            WHEN MAX(CASE WHEN "GrRowNum" <= 2 THEN "ActDelWDays" END) > MIN(CASE WHEN "QuantityPct" >= "LT_Pct" THEN "ActDelWDays" END)
+            THEN CEILING(MAX(CASE WHEN "GrRowNum" <= 2 THEN "ActDelWDays" END) / 5.0) * 5
+            ELSE CEILING(MIN(CASE WHEN "QuantityPct" >= "LT_Pct" THEN "ActDelWDays" END) / 5.0) * 5
+        END - 1, "LeadTime")
+    ) AS VARCHAR) AS "LeadTime",
+    GREATEST(
+        COALESCE(CASE              
+            WHEN MAX("PoCurWDays") <= 0 THEN 1
+            ELSE CEILING(MAX("PoCurWDays") / 5.0) * 5
+        END - 1,"LeadTime"),
+        COALESCE(CASE 
+            WHEN MAX(CASE WHEN "GrRowNum" <= 2 THEN "ActDelWDays" END) > MIN(CASE WHEN "QuantityPct" >= 95 THEN "ActDelWDays" END)
+            THEN CEILING(MAX(CASE WHEN "GrRowNum" <= 2 THEN "ActDelWDays" END) / 5.0) * 5
+            ELSE CEILING(MIN(CASE WHEN "QuantityPct" >= 90 THEN "ActDelWDays" END) / 5.0) * 5
+        END - 1,"LeadTime")
+    ) AS "LTUpdateALL",
+    --LEAST(MAX(CASE WHEN "RowNum"<=2 THEN "ActDelWDays" END), MIN(CASE WHEN "QuantityPct" >= 95 THEN "ActDelWDays" END)) AS "LTUpdate",    
+    --SUM("OnHand") AS "OnHand",
+    --SUM("StockValue") AS "StockValue",    
+    MIN(CASE WHEN "QuantityPct" >= 25 THEN "ActDelWDays" END) AS "25%",
+    MIN(CASE WHEN "QuantityPct" >= 50 THEN "ActDelWDays" END) AS "50%",
+    MIN(CASE WHEN "QuantityPct" >= 70 THEN "ActDelWDays" END) AS "70%",
+    MIN(CASE WHEN "QuantityPct" >= 75 THEN "ActDelWDays" END) AS "75%",
+    MIN(CASE WHEN "QuantityPct" >= 80 THEN "ActDelWDays" END) AS "80%",
+    MIN(CASE WHEN "QuantityPct" >= 85 THEN "ActDelWDays" END) AS "85%",
+    MIN(CASE WHEN "QuantityPct" >= 90 THEN "ActDelWDays" END) AS "90%",
+    MIN(CASE WHEN "QuantityPct" >= 95 THEN "ActDelWDays" END) AS "95%",
+    MIN(CASE WHEN "QuantityPct" >= 100 THEN "ActDelWDays" END) AS "100%",
+    MAX(CASE WHEN "GrRowNum"<=2 THEN "ActDelWDays" END) AS "MaxLast2Rct",    
+    MAX(CASE WHEN "GrRowNum"=1 THEN "ActDelWDays" END) AS "LastRct",
+    CASE 
+    	WHEN MAX(CASE WHEN "GrRowNum"=1 THEN "ActDelWDays" END)=
+    		 MIN(CASE WHEN "QuantityPct" >= 100 THEN "ActDelWDays" END) 
+    		 AND MAX(CASE WHEN "GrRowNum"=1 THEN "ActDelWDays" END)>23
+        THEN 'Y' 
+    END "MaxLastRct",
+    "SalFactor1", "SalFactor2", "SalFactor3", "SalFactor4", "PurFactor1", "PurFactor2", "PurFactor3", "PurFactor4"  
+FROM SCC   
+GROUP BY "PlaningSys", "OrdrIntrvl", "Name", "RuleCode", "ItemCode", "LeadTime", "CardCode", "SalFactor1", "SalFactor2", "SalFactor3", "SalFactor4", "PurFactor1", "PurFactor2", "PurFactor3", "PurFactor4" 
+HAVING "LeadTime" <>
+    CAST(GREATEST(
+        COALESCE(CASE            
+            WHEN COALESCE(MAX("PoCurWDays"),0) <= 0 THEN 1
+            ELSE CEILING(MAX("PoCurWDays") / 5.0) * 5
+        END - 1, "LeadTime"),
+        COALESCE(CASE 
+            WHEN MAX(CASE WHEN "GrRowNum" <= 2 THEN "ActDelWDays" END) > MIN(CASE WHEN "QuantityPct" >= "LT_Pct" THEN "ActDelWDays" END)
+            THEN CEILING(MAX(CASE WHEN "GrRowNum" <= 2 THEN "ActDelWDays" END) / 5.0) * 5
+            ELSE CEILING(MIN(CASE WHEN "QuantityPct" >= "LT_Pct" THEN "ActDelWDays" END) / 5.0) * 5
+        END - 1, "LeadTime")
+    ) AS VARCHAR)
+)
+SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime", 'PurFactor2' AS "PurchaseFactor2"  FROM DUMMY UNION ALL 
+SELECT "ItemCode", "LeadTime", CAST("OITM_LeadTime" AS VARCHAR) AS "PurchaseFactor2"  FROM LT
+
+-- VBA_SUPPLYCHAINCUBE_LEADTIME.sql
