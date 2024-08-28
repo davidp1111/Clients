@@ -211,7 +211,7 @@ SELECT
 	"OrdrIntrvl",
 	"Name",
 	"RuleCode",
-    CASE WHEN "LeadTime"=0 THEN 1 ELSE "LeadTime" END AS "OITM_LeadTime",
+    CASE WHEN "LeadTime"=0 THEN 999 ELSE "LeadTime" END AS "OITM_LeadTime",
     COUNT(DISTINCT CASE WHEN "GrDocNum" IS NOT NULL THEN "PoDocNum" END) AS "PO",
     COUNT(CASE WHEN "PreRcvOH" = 0 THEN 1 END) AS "SO",
     CAST(
