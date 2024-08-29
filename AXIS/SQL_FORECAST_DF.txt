@@ -1,4 +1,4 @@
---AXIS/SQL_FORECAST_DF.txt 2024-08-29_1613
+--AXIS/SQL_FORECAST_DF.txt 2024-08-29_1620
 --VBA_SALESCUBE_FCT_WKLY.sql 2024-08-26_0031
 
 --SALESCUBE_COMPONENTS/BASE_DEMAND.sql 2024-08-23_1431
@@ -126,7 +126,8 @@ SELECT F1."Name", DF."FctCode", "DfDate",
     
     -- Quantity	                   
     IFNULL(F1."Quantity", 0) AS "FCT1_Quantity",
-    IFNULL(DF."Quantity",0) AS "Quantity",    
+    IFNULL(DF."Quantity",0) AS "Quantity", 
+    IFNULL(F1."Quantity",DF."Quantity") AS "MthFctQty", 
 
 	--Date          
     TO_CHAR("Date", 'YYYYMMDD') AS "FCT1_Date",
@@ -191,7 +192,7 @@ UNION ALL
 SELECT     
 	CAST("AbsID" AS VARCHAR) AS "Numerator", 
     CAST("CALC_LineID" AS VARCHAR) AS "LineNum", 
-    CAST("Quantity" AS VARCHAR) AS "Quantity", 
+    CAST("MthFctQty" AS VARCHAR) AS "Quantity", 
     CAST("Date" AS VARCHAR) AS "Date", 
     "ItemCode" AS "ItemCode", 
     "WhsCode" AS "Warehouse"
