@@ -1,4 +1,4 @@
---AXIS/SQL_FORECAST_DETAIL_DF.txt 2024-08-29_2029
+--AXIS/SQL_FORECAST_DF.txt 2024-08-29_2120
 --VBA_SALESCUBE_FCT_WKLY.sql 2024-08-26_0031
 
 --SALESCUBE_COMPONENTS/BASE_DEMAND.sql 2024-08-23_1431
@@ -112,6 +112,7 @@ FCT1 AS (
 	Left JOIN OFCT F ON F."AbsID"=F1."AbsID"
 	AND F."AbsID"<>7
 )
+
 SELECT F1."Name", DF."FctCode", DF."DfDate",
     -- Total number of rows in the result set, repeated in every row
     COUNT(*) OVER () AS "TotalRows",
@@ -137,7 +138,7 @@ SELECT F1."Name", DF."FctCode", DF."DfDate",
 	) - 1 AS "CALC_LineID", 
     
     -- Quantity	                   
-    F1."Quantity" AS "FCT1_Quantity",
+    F1."Quantity" AS "FCT1_Quantity", 
     IFNULL(DF."Quantity",0) AS "Quantity", 
     IFNULL(F1."Quantity",DF."Quantity") AS "MthFctQty", 
 
@@ -194,4 +195,5 @@ WHERE 	COALESCE(F1."ItemCode", DF."ItemCode") IS NOT NULL
 		AND F."Code"=DF."FctCode"
 		AND "DfDate"=TO_VARCHAR(ADD_MONTHS(TO_DATE(TO_VARCHAR(CURRENT_DATE, 'YYYYMM') || '01', 'YYYYMMDD'), GENERATED_PERIOD_START), 'YYYYMMDD')
 		--AND COALESCE(F1."Quantity", 0) <> COALESCE(DF."Quantity", 0)
+		AND NOT(F1."Quantity" IS NULL AND DF."Quantity"=0)
 ORDER BY COALESCE(F."AbsID", F1."AbsID"), F1."LineID"
