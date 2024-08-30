@@ -1,4 +1,4 @@
---AXIS/SQL_FORECAST_DF.txt 2024-08-29_1623
+--AXIS/SQL_FORECAST_DF.txt 2024-08-29_2012
 --VBA_SALESCUBE_FCT_WKLY.sql 2024-08-26_0031
 
 --SALESCUBE_COMPONENTS/BASE_DEMAND.sql 2024-08-23_1431
@@ -60,17 +60,30 @@ ORDER1 AS (
 	WHERE i."LeadTime"<>0 AND i."LeadTime" IS NOT NULL AND cy."Name"<> 'NONSTOCK' AND NOT(i."PlaningSys"='N' AND ai."PlaningSys"='N')
 	AND (ib."RuleCode"='DF' OR i."RuleCode"='DF')
 ),
-DF AS(
-	SELECT "FctCode", "ItemCode", "WhsCode", TO_NVARCHAR(YEAR("ShipDate") + 1) || TO_NVARCHAR(MONTH("ShipDate"), '00') || '01' AS "DfDate",
+FP AS(
+SELECT TO_VARCHAR(ADD_DAYS(LAST_DAY(ADD_MONTHS(CURRENT_DATE, GENERATED_PERIOD_START)), 1), 'YYYYMMDD') AS "DfDate"
+FROM SERIES_GENERATE_INTEGER(1, -1, 12)
+),
+FI AS(
+SELECT DISTINCT "FctCode", "ItemCode", "WhsCode"
+--TO_NVARCHAR(YEAR("ShipDate") + 1) || TO_NVARCHAR(MONTH("ShipDate"), '00') || '01' AS "DfDate"
+FROM ORDER1
+),
+MDF AS(
+SELECT "FctCode", "ItemCode", "WhsCode", TO_NVARCHAR(YEAR("ShipDate") + 1) || TO_NVARCHAR(MONTH("ShipDate"), '00') || '01' AS "DfDate",
 	SUM("Quantity") AS "Quantity"
 	FROM ORDER1
 	GROUP BY  "FctCode",  "ItemCode",  "WhsCode",  TO_NVARCHAR(YEAR("ShipDate") + 1) || TO_NVARCHAR(MONTH("ShipDate"), '00') || '01'
-	/*UNION ALL
-	SELECT 'CG-CMP' AS "FctCode", "ItemCode", "WhsCode", TO_NVARCHAR(YEAR("ShipDate") + 1) || TO_NVARCHAR(MONTH("ShipDate"), '00') || '01' AS "DfDate",
-	SUM("Quantity") AS "Quantity"
-	FROM ORDER1
-	GROUP BY  "ItemCode",  "WhsCode",  TO_NVARCHAR(YEAR("ShipDate") + 1) || TO_NVARCHAR(MONTH("ShipDate"), '00') || '01'*/
-	),
+),		
+DF AS(
+SELECT FI.*, FP."DfDate", IFNULL(MDF."Quantity",0) AS "Quantity"
+FROM FI
+CROSS JOIN FP
+LEFT JOIN MDF ON MDF."FctCode"=FI."FctCode" AND FP."DfDate"=MDF."DfDate" AND FI."WhsCode"=MDF."WhsCode"
+--WHERE FI."FctCode"='CG-137'
+ORDER BY FI."FctCode", FI."ItemCode", FI."WhsCode", FP."DfDate"
+),
+
 DateDiff AS (
 	SELECT
 	    -- MinDate: First day of the current month in format YYYYMM01
@@ -100,7 +113,7 @@ FCT1 AS (
 	AND F."AbsID"<>7
 ),
 FCT_VBA AS(	
-SELECT F1."Name", DF."FctCode", "DfDate",
+SELECT F1."Name", DF."FctCode", DF."DfDate",
     -- Total number of rows in the result set, repeated in every row
     COUNT(*) OVER () AS "TotalRows",
     (COUNT(*) OVER ())/52 AS "TotalItems",
@@ -125,7 +138,7 @@ SELECT F1."Name", DF."FctCode", "DfDate",
 	) - 1 AS "CALC_LineID", 
     
     -- Quantity	                   
-    IFNULL(F1."Quantity", 0) AS "FCT1_Quantity",
+    F1."Quantity" AS "FCT1_Quantity",
     IFNULL(DF."Quantity",0) AS "Quantity", 
     IFNULL(F1."Quantity",DF."Quantity") AS "MthFctQty", 
 
@@ -189,12 +202,13 @@ SELECT
 	'ForecastedDay' AS "ForecastedDay", 'ItemNo' AS "ItemNo", 'Warehouse' AS "Warehouse" 
 FROM DUMMY 
 UNION ALL
-SELECT     
+SELECT   
 	CAST("AbsID" AS VARCHAR) AS "Numerator", 
-    CAST("CALC_LineID" AS VARCHAR) AS "LineNum", 
+    CAST("CALC_LineID" AS VARCHAR) AS "LineNum",
     CAST("MthFctQty" AS VARCHAR) AS "Quantity", 
     CAST("Date" AS VARCHAR) AS "Date", 
     "ItemCode" AS "ItemCode", 
     "WhsCode" AS "Warehouse"
 FROM FCT_VBA
-WHERE "MthFctQty"<>"FCT1_Quantity"
+WHERE "MthFctQty"<>"FCT1_Quantity" OR "FCT1_Quantity" IS NULL
+
