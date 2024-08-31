@@ -1,18 +1,11 @@
---AXIS/SQL_FORECAST.txt 2024-08-31_1056
---VBA_SALESCUBE_FCT_WKLY.sql 2024-08-26_0031
-
---SALESCUBE_COMPONENTS/BASE_DEMAND.sql 2024-08-23_1431
+--AXIS/SQL_FORECAST.txt 2024-08-31_1342
 
 WITH DMD AS(
-
---SALESCUBE_COMPONENTS/DMD.sql 2024-08-23_1427
-
 	SELECT NULL AS "DocEntry", NULL AS "LineNum", im."ItemCode", im."Warehouse" AS "WhsCode", w1."WhsCode" AS "RcvWhs", im."DocDate", im."DocDate" AS "ShipDate", 
-	(im."InQty"-im."OutQty") * -1 AS "Quantity", 'WHS'||w1."WhsCode" AS "CardCode"	
+	(im."InQty"-im."OutQty") * -1 AS "Quantity", 'WHS'||w1."WhsCode" AS "CardCode"
 	FROM OINM im
 	JOIN WTR1 w1 ON im."CreatedBy"=w1."DocEntry" AND im."DocLineNum"=w1."LineNum"
 	JOIN OITM i ON im."ItemCode"=im."ItemCode"
-	LEFT JOIN OITB ib ON ib."ItmsGrpCod"=i."ItmsGrpCod"	
 	WHERE im."DocDate" >= ADD_MONTHS(TO_DATE(YEAR(CURRENT_DATE) || '-' || LPAD(MONTH(CURRENT_DATE), 2, '0') || '-01', 'YYYY-MM-DD'), -12)
 	AND im."Warehouse" IN('02') --From Warehouse
 	AND w1."WhsCode" IN('TruckStock') --To Warehouse (ie Truck Stock)
@@ -24,10 +17,8 @@ WITH DMD AS(
 	WHERE "Quantity" > 0 AND NOT ("LineStatus"='C' AND "TargetType" = -1) AND "LineStatus" IN ('O', 'C') AND "DropShip"='N' 
 	      AND "ShipDate" >= ADD_MONTHS(TO_DATE(YEAR(CURRENT_DATE) || '-' || LPAD(MONTH(CURRENT_DATE), 2, '0') || '-01', 'YYYY-MM-DD'), -12) 
 	    --AND "WhsCode" IN('01') 
-
---SALESCUBE_COMPONENTS/DMD.sql
-
 ),
+
 FCT_DETAIL AS (
 	SELECT
 	COUNT (*) OVER () AS total_row_count, 
@@ -63,7 +54,7 @@ FCT_DETAIL AS (
 	r1."WhsCode", r1."WhsCode" AS "ShipWhs", "DocDate", "ShipDate", a."Remarks", iw."MinOrder",
     ADD_MONTHS(TO_DATE(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE))), -12) AS "YrStartDate",
     TO_DATE(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE))) AS "YrEndDate",
-    ib."ItmsGrpCod", ib."ItmsGrpNam", 'CG-'||cg."GroupCode" AS "GroupCode", cg."GroupName", c."ChannlBP",
+    ib."ItmsGrpCod", ib."ItmsGrpNam", 'CG-'||cg."GroupCode" AS "GroupCode", cg."GroupName", c."ChannlBP", i."RuleCode",
 	CASE 
         WHEN ib."RuleCode" = 'DF' OR i."RuleCode" = 'DF' THEN 'FUTURE'
         ELSE 'HISTORICAL'
@@ -90,35 +81,40 @@ FCT_DETAIL AS (
 	WHERE i."LeadTime"<>0 AND i."LeadTime" IS NOT NULL AND cy."Name"<> 'NONSTOCK' AND NOT(i."PlaningSys"='N' AND ai."PlaningSys"='N') 
 	--AND ib."RuleCode"='DF' OR i."RuleCode"='DF'
 ),
+
 FCT_CARDCODE_FUTURE AS(	--FUTURE USE	
 SELECT "FctGroupCode", "FctSheetCode", "FctCardCode", "FctItemCode", "FctPeriod", "FctWhsCode", "DF_Status", SUM("Quantity") AS "FctQuantity"
 FROM FCT_DETAIL 
 WHERE "DF_Status"='FUTURE'AND FUTURE_PD=1
 GROUP BY "FctSheetName", "FctGroupCode", "FctSheetCode", "FctCardCode", "FctItemCode", "FctPeriod", "FctWhsCode", "DF_Status"
 ),
+
 FCT_GROUPCODE_FUTURE AS(	 --FUTURE USE
 SELECT "FctGroupCode", "FctItemCode", "FctPeriod", "FctWhsCode", "DF_Status", SUM("Quantity") AS "FctQuantity"
 FROM FCT_DETAIL 
 WHERE "DF_Status"='FUTURE' AND FUTURE_PD=1
 GROUP BY "FctGroupCode", "FctItemCode", "FctPeriod", "FctWhsCode", "DF_Status"
 ),
+
 FCT_SHEETCODE_FUTURE AS(
 SELECT F."AbsID" AS "FctAbsID", F."Code", "FctSheetName"||' ID'||F."AbsID"||')' AS "FctSheetName", "FctGroupCode", "FctSheetCode", "FctItemCode", "FctPeriod", "FctWhsCode", "DF_Status", SUM("Quantity") AS "FctQuantity",
 TO_VARCHAR(CURRENT_DATE, 'YYYYMM') || '01' AS "StartDate",
 TO_VARCHAR(ADD_MONTHS(ADD_YEARS(CURRENT_DATE, 1), -1), 'YYYYMM') || TO_VARCHAR(LAST_DAY(ADD_MONTHS(ADD_YEARS(CURRENT_DATE, 1), -1)), 'DD') AS "EndDate", 'M' AS "View"
-FROM FCT_DETAIL FDL
-LEFT JOIN OFCT F ON F."Code"=FDL."FctSheetCode"
+FROM FCT_DETAIL FD
+LEFT JOIN OFCT F ON F."Code"=FD."FctSheetCode"
 WHERE "DF_Status"='FUTURE' AND FUTURE_PD=1
 GROUP BY F."AbsID", F."Code", "FctSheetName", "FctGroupCode", "FctSheetCode", "FctItemCode", "FctPeriod", "FctWhsCode", "DF_Status"
 ),
+
 FCT_WKLY_HISTORICAL AS(
 SELECT F."AbsID" AS "FctAbsID", F."Code", "FctSheetName"||' ID'||F."AbsID"||')' AS "FctSheetName", "FctSheetCode", "FctItemCode", "FctWhsCode", "DF_Status", CAST(SUM("Quantity")/52 AS INTEGER) AS "FctQuantity"
-FROM FCT_DETAIL FDL
-LEFT JOIN OFCT F ON F."Code"=FDL."FctSheetCode"
+FROM FCT_DETAIL FD
+LEFT JOIN OFCT F ON F."Code"=FD."FctSheetCode"
 WHERE "DF_Status"='HISTORICAL' AND HISTORICAL_PD=1
 GROUP BY F."AbsID", F."Code", "FctSheetName", "FctSheetCode", "FctItemCode", "FctWhsCode", "DF_Status"
 HAVING CAST(SUM("Quantity")/52 AS INTEGER)>0
 ),
+
 FCT_SHEETCODE_HISTORICAL AS(
 SELECT FWH.*,
 TO_VARCHAR(ADD_DAYS(CURRENT_DATE, GENERATED_PERIOD_START), 'YYYYMMDD') AS "FctPeriod",
@@ -127,6 +123,7 @@ TO_VARCHAR(MAX(ADD_DAYS(CURRENT_DATE, GENERATED_PERIOD_START + 6)) OVER (PARTITI
 FROM FCT_WKLY_HISTORICAL FWH
 CROSS JOIN SERIES_GENERATE_INTEGER(7, 2 - DAYOFWEEK(CURRENT_DATE), 365)
 ),
+
 FORECAST AS(
 SELECT 
 "DF_Status",
@@ -190,4 +187,5 @@ SELECT
 FROM FORECAST
 WHERE NOT("FCT1.Quantity" IS NULL AND "DF_Status"='FUTURE') AND NOT(IFNULL("FCT1.Quantity",0)=IFNULL("FctQuantity",0) AND "DF_Status"='HISTORICAL')
 )
+
 SELECT * FROM OFCT
