@@ -1,4 +1,4 @@
---AXIS/SQL_MINMAX.txt 2024-08-31_2321
+--AXIS/SQL_MINMAX.txt 2024-08-31_2350
 
 WITH DMD AS(
 	SELECT NULL AS "DocEntry", NULL AS "LineNum", im."ItemCode", im."Warehouse" AS "WhsCode", w1."WhsCode" AS "RcvWhs", im."DocDate", im."DocDate" AS "ShipDate", 
@@ -204,13 +204,7 @@ HAVING
     		ELSE CAST("YrQty"/52 * ("LtdLt"+1)/5 - CAST("YrQty"/52 AS INTEGER) * ("LtdLt"+1)/5 + 1 AS INTEGER) + GREATEST(0, LTDMD."LtDmd" - CAST("YrQty" / 52 AS INTEGER) * ("LtdLt" + 1) / 5) + CAST("YrQty"/52 AS INTEGER)
     	END AS INTEGER)  <> "MaxStock"
     	OR ("PlaningSys"<>'M' AND "MinStock"<>0 AND "MaxStock"<>0)
-),
-
-OITW AS(
-SELECT 'ParentKey' AS "ParentKey", 'LineNum' AS "LineNum", 'MinimalStock' AS "MinimalStock", 'MaximalStock' AS "MaximalStock"  FROM DUMMY UNION ALL 
-SELECT "FctItemCode" AS "ParentKey", CAST("WhLineNum" AS VARCHAR) AS "LineNum" , CAST("MinimalStock" AS VARCHAR) AS "MinimalStock", CAST("MaximalStock" AS VARCHAR) AS "MaximalStock"
-FROM MINMAX  
 )
 SELECT 'ParentKey' AS "ParentKey", 'LineNum' AS "LineNum", 'MinimalStock' AS "MinimalStock", 'MaximalStock' AS "MaximalStock"  FROM DUMMY UNION ALL 
 SELECT "FctItemCode" AS "ParentKey", CAST("WhLineNum" AS VARCHAR) AS "LineNum" , CAST("MinimalStock" AS VARCHAR) AS "MinimalStock", CAST("MaximalStock" AS VARCHAR) AS "MaximalStock"
-FROM MINMAX
+FROM MINMAX  
