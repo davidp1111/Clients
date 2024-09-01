@@ -1,4 +1,4 @@
---AXIS/SQL_FORECAST.txt 2024-08-31_1605
+--AXIS/SQL_FORECAST.txt 2024-08-31_2155
 
 WITH DMD AS(
 	SELECT NULL AS "DocEntry", NULL AS "LineNum", im."ItemCode", im."Warehouse" AS "WhsCode", w1."WhsCode" AS "RcvWhs", im."DocDate", im."DocDate" AS "ShipDate", 
@@ -52,21 +52,23 @@ FCT_DETAIL AS (
  	a."Match", r1."Quantity" AS "OrderQuantity", CAST(CASE WHEN a."Match" IS NULL then "Quantity" ELSE 100/a."Match" * "Quantity" END AS INTEGER) AS "Quantity",
 	r1."CardCode" AS "CustCardCode", ai."CardCode" AS "AltVendCode", i."CardCode" AS "OrderVendCode", COALESCE(ai."CardCode",i."CardCode") AS "VendCode",
 	r1."WhsCode", r1."WhsCode" AS "ShipWhs", "DocDate", "ShipDate", a."Remarks", iw."MinOrder",
-    ADD_MONTHS(TO_DATE(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE))), -12) AS "YrStartDate",
-    TO_DATE(ADD_DAYS(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE)), -1)) AS "YrEndDate",
+    --ADD_MONTHS(TO_DATE(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE))), -12) AS "YrStartDate",
+    --TO_DATE(ADD_DAYS(CURRENT_DATE, -DAYOFWEEK(CURRENT_DATE))) AS "YrEndDate",
     ib."ItmsGrpCod", ib."ItmsGrpNam", 'CG-'||cg."GroupCode" AS "GroupCode", cg."GroupName", c."ChannlBP", i."RuleCode",
 	CASE 
         WHEN ib."RuleCode" = 'DF' OR i."RuleCode" = 'DF' THEN 'FUTURE'
         ELSE 'HISTORICAL'
     END AS "DF_Status",
 	CASE
-		WHEN "ShipDate" >= ADD_MONTHS(TO_DATE(YEAR(CURRENT_DATE) || '-' || LPAD(MONTH(CURRENT_DATE), 2, '0') || '-01', 'YYYY-MM-DD'), -12) THEN 1
+		WHEN "ShipDate" >= ADD_MONTHS(TO_DATE(YEAR(CURRENT_DATE) || '-' || LPAD(MONTH(CURRENT_DATE), 2, '0') || '-01', 'YYYY-MM-DD'), -12) AND
+		"ShipDate" <=ADD_DAYS(ADD_MONTHS(TO_DATE(YEAR(CURRENT_DATE) || '-' || LPAD(MONTH(CURRENT_DATE), 2, '0') || '-01', 'YYYY-MM-DD'), 0),-1) 
+		THEN 1
 		ELSE 0
 	END AS FUTURE_PD,
 	CASE
-	    WHEN "ShipDate" >= ADD_DAYS(CURRENT_DATE, -364) THEN 1
-	    ELSE 0
-	END AS HISTORICAL_PD
+	    WHEN "ShipDate" >= ADD_DAYS(ADD_MONTHS(CURRENT_DATE, -12), 1) AND "ShipDate"<= CURRENT_DATE THEN 1 ELSE 0
+	END AS HISTORICAL_PD,
+	ADD_DAYS(ADD_MONTHS(TO_DATE(YEAR(CURRENT_DATE) || '-' || LPAD(MONTH(CURRENT_DATE), 2, '0') || '-01', 'YYYY-MM-DD'), 0),-1)
 	FROM DMD r1
 	LEFT JOIN OITM i ON r1."ItemCode"=i."ItemCode"
 	LEFT JOIN OITW iw ON r1."ItemCode"=iw."ItemCode" AND '03'=iw."WhsCode" 
