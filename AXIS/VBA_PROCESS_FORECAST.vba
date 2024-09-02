@@ -1,18 +1,42 @@
--- AXIS/VBA_PROCESS_FORECAST.vba 2024-08-27_2231
-Sub RunSQLFromFile()
+'VBA_PROCESS_FORECAST.vba 2024-09-02_0157
+Sub ProcessForecast()
     Dim conn As Object
     Dim configSheet As Worksheet
     Dim xmlCreds As Worksheet
     Dim processPath As String
     
-    ' Reference to the CONFIG worksheet
-    Set configSheet = ThisWorkbook.Sheets("CONFIG")
+    Dim logMessage As String
+    logMessage = "----------------------------------------------" & vbCrLf & _
+                 "Start Forecast Process:  " & Format(Now, "mm/dd/yyyy HH:MM:SS")
+    WriteToLogFile logMessage
+    
+    Call GitHubSqlXml
+    
+    ' Reference to the XML_CREDENTIALS worksheet
+    Set configSheet = ThisWorkbook.Sheets("XML_CREDENTIALS")
     
     ' Reference to the XML_CREDENTIALS worksheet
     Set xmlCreds = ThisWorkbook.Sheets("XML_CREDENTIALS")
     
-    ' Get the process path from the CONFIG sheet
-    processPath = configSheet.Range("B7").Value
+    ' Get the process path from the XML_CREDENTIALS sheet
+    Dim lastRow As Long
+    Dim i As Long
+    
+    lastRow = configSheet.Cells(configSheet.Rows.Count, "A").End(xlUp).row
+    
+    ' Find the DTW.exe path
+    processPath = "" ' Reset the processPath
+    For i = 1 To lastRow
+        If configSheet.Range("A" & i).Value = "DTW.exe" Then
+            processPath = configSheet.Range("B" & i).Value
+            Exit For
+        End If
+    Next i
+
+    ' Check if the path was found
+    If processPath = "" Then
+        MsgBox "DTW.exe path not found in the XML_CREDENTIALS sheet.", vbExclamation
+    End If
     
     ' Initialize ADODB connection object
     Set conn = CreateObject("ADODB.Connection")
@@ -22,7 +46,10 @@ Sub RunSQLFromFile()
     Call ProcessSection("MINMAX", configSheet, xmlCreds, conn, processPath)
     Call ProcessSection("FORECAST", configSheet, xmlCreds, conn, processPath)
     
-    MsgBox "Complete"
+    logMessage = "End Forecast Process: " & Format(Now, "mm/dd/yyyy HH:MM:SS")
+    WriteToLogFile logMessage
+    
+    MsgBox "End Forecast Process"
     
 Cleanup:
     ' Clean up
@@ -49,11 +76,40 @@ Sub ProcessSection(sectionName As String, configSheet As Worksheet, xmlCreds As 
     Dim parameters As String
     Dim userName As String
     Dim password As String
+    Dim lastRow As Long
+    Dim i As Long
     
-    ' Get the base paths from the CONFIG worksheet
-    Dim sqlPath As String: sqlPath = configSheet.Range("B3").Value
-    Dim xmlPath As String: xmlPath = configSheet.Range("B4").Value
-    Dim dtwPath As String: dtwPath = configSheet.Range("B5").Value
+    ' Get the current user's name
+    Dim currentUser As String
+    currentUser = Environ("Username")
+    
+    ' Get the base paths from the XML_CREDENTIALS worksheet and replace %User% with the current user
+    Dim sqlPath As String
+    Dim xmlPath As String
+    Dim dtwPath As String
+    Dim basePath As String
+    Dim j As Long
+    
+    lastRow = configSheet.Cells(configSheet.Rows.Count, "A").End(xlUp).row
+    
+    ' Find the Import Folders path
+    For j = 1 To lastRow
+        If configSheet.Range("A" & j).Value = "Import Folders" Then
+            basePath = configSheet.Range("B" & j).Value
+            Exit For
+        End If
+    Next j
+    
+    ' If Import Folders is found, construct the paths
+    If basePath <> "" Then
+        basePath = Replace(basePath, "%Username%", currentUser)
+        sqlPath = basePath & "\FILES_SQL\"
+        xmlPath = basePath & "\FILES_XML\"
+        dtwPath = basePath & "\FILES_DTW\"
+    Else
+        MsgBox "Import Folders path not found in the XML_CREDENTIALS sheet.", vbExclamation
+    End If
+
     
     ' Define the file paths
     sqlfilePath = sqlPath & "SQL_" & sectionName & ".txt"
@@ -68,8 +124,15 @@ Sub ProcessSection(sectionName As String, configSheet As Worksheet, xmlCreds As 
     Set sheets2Sql = ThisWorkbook.Sheets("SQL_FORECAST_OFCT")
     
     ' Get credentials
-    userName = xmlCreds.Range("B6").Value
-    password = xmlCreds.Range("B7").Value
+    lastRow = xmlCreds.Cells(xmlCreds.Rows.Count, "A").End(xlUp).row
+    
+    For i = 1 To lastRow
+        If xmlCreds.Range("A" & i).Value = "UserName" Then
+            userName = xmlCreds.Range("B" & i).Value
+        ElseIf xmlCreds.Range("A" & i).Value = "Password" Then
+            password = xmlCreds.Range("B" & i).Value
+        End If
+    Next i
     
     ' Call the subroutine to write the SQL sheet to the text file
     Call WriteSqlToFile(sheetsSql, sqlfilePath)
@@ -96,6 +159,15 @@ Sub WriteSqlToFile(sheetToWrite As Worksheet, filePath As String)
     Dim outputLine As String
     Dim i As Long
     Dim j As Long
+    Dim folderPath As String
+    
+    ' Extract folder path from the file path
+    folderPath = Left(filePath, InStrRev(filePath, "\"))
+    
+    ' Check if the folder exists, and create it if it doesn't
+    If Dir(folderPath, vbDirectory) = "" Then
+        MkDir folderPath
+    End If
     
     ' Open the text file for writing
     txtFile = FreeFile
@@ -114,6 +186,7 @@ Sub WriteSqlToFile(sheetToWrite As Worksheet, filePath As String)
     ' Close the text file
     Close txtFile
 End Sub
+
 Sub ExecuteSQLAndWriteToFile(conn As Object, queryFilePath As String, dtwFilePath As String, xmlCreds As Worksheet)
     Dim rs As Object
     Dim sqlQuery As String
@@ -122,7 +195,10 @@ Sub ExecuteSQLAndWriteToFile(conn As Object, queryFilePath As String, dtwFilePat
     Dim txtFile As Integer
     Dim outputLine As String
     Dim i As Integer
-    Dim dsn As String, uid As String, pwd As String
+    Dim dsn As String, UID As String, pwd As String
+    Dim folderPath As String
+    Dim lastRow As Long
+    Dim j As Long
     
     ' Read the SQL query from the text file
     fileNum = FreeFile
@@ -134,11 +210,20 @@ Sub ExecuteSQLAndWriteToFile(conn As Object, queryFilePath As String, dtwFilePat
     Close fileNum
     
     ' Build the connection string using values from XML_CREDENTIALS
-    dsn = xmlCreds.Range("B1").Value
-    uid = xmlCreds.Range("B2").Value
-    pwd = xmlCreds.Range("B3").Value
+    lastRow = xmlCreds.Cells(xmlCreds.Rows.Count, "A").End(xlUp).row
     
-    conn.ConnectionString = "DSN=" & dsn & ";UID=" & uid & ";PWD=" & pwd & ";"
+    For j = 1 To lastRow
+        Select Case xmlCreds.Range("A" & j).Value
+            Case "DSN"
+                dsn = xmlCreds.Range("B" & j).Value
+            Case "UID"
+                UID = xmlCreds.Range("B" & j).Value
+            Case "PWD"
+                pwd = xmlCreds.Range("B" & j).Value
+        End Select
+    Next j
+    
+    conn.ConnectionString = "DSN=" & dsn & ";UID=" & UID & ";PWD=" & pwd & ";"
     
     ' Test the connection
     On Error GoTo ConnectionError
@@ -151,6 +236,14 @@ Sub ExecuteSQLAndWriteToFile(conn As Object, queryFilePath As String, dtwFilePat
     If rs.EOF And rs.BOF Then
         MsgBox "No records returned by the query."
         GoTo Cleanup
+    End If
+    
+    ' Extract folder path from the dtwFilePath
+    folderPath = Left(dtwFilePath, InStrRev(dtwFilePath, "\"))
+    
+    ' Check if the folder exists, and create it if it doesn't
+    If Dir(folderPath, vbDirectory) = "" Then
+        MkDir folderPath
     End If
     
     ' Open the text file for writing DTW_LEADTIME.txt
@@ -196,11 +289,28 @@ Sub CreateXMLFileWithReplacements(sheet As Worksheet, xmlCreds As Worksheet, fil
     Dim xmlFile As Integer
     Dim i As Long
     Dim xmlLine As String
+    Dim folderPath As String
     
     ' Retrieve credentials from XML_CREDENTIALS sheet
-    Dim company As String, server As String
-    company = xmlCreds.Range("B4").Value
-    server = xmlCreds.Range("B5").Value
+    Dim company As String, server As String, lastRow As Long, k As Long
+    lastRow = xmlCreds.Cells(xmlCreds.Rows.Count, "A").End(xlUp).row
+
+    For k = 1 To lastRow
+        Select Case xmlCreds.Range("A" & k).Value
+            Case "Company"
+                company = xmlCreds.Range("B" & k).Value
+            Case "Server"
+                server = xmlCreds.Range("B" & k).Value
+        End Select
+    Next k
+    
+    ' Extract folder path from the file path
+    folderPath = Left(filePath, InStrRev(filePath, "\"))
+    
+    ' Check if the folder exists, and create it if it doesn't
+    If Dir(folderPath, vbDirectory) = "" Then
+        MkDir folderPath
+    End If
     
     ' Open the XML file for writing
     xmlFile = FreeFile
@@ -213,14 +323,15 @@ Sub CreateXMLFileWithReplacements(sheet As Worksheet, xmlCreds As Worksheet, fil
         xmlLine = Replace(xmlLine, "%Password%", password)
         xmlLine = Replace(xmlLine, "%Company%", company)
         xmlLine = Replace(xmlLine, "%Server%", server)
-        xmlLine = Replace(xmlLine, "%Temp%", dtwFilePath) ' Replace %Temp% with dtwfilePath
-        xmlLine = Replace(xmlLine, "%Temp2%", dtwFile2Path) ' Replace %Temp% with dtwfilePath
+        xmlLine = Replace(xmlLine, "%Temp%", dtwFilePath) ' Replace %Temp% with dtwFilePath
+        xmlLine = Replace(xmlLine, "%Temp2%", dtwFile2Path) ' Replace %Temp2% with dtwFile2Path
         Print #xmlFile, xmlLine
     Next i
     
     ' Close the XML file
     Close xmlFile
 End Sub
+
 
 Sub RunDTW(processPath As String, parameters As String, sqlfilePath As String, sqlfile2Path As String, dtwFilePath As String, dtwFile2Path As String, xmlfilePath As String)
     Dim wsh As Object
@@ -247,4 +358,189 @@ Sub RunDTW(processPath As String, parameters As String, sqlfilePath As String, s
     Else
         MsgBox "Process failed with exit code: " & execResult, vbExclamation
     End If
+    
+    Call CopyLastOLOGRowToLogFile
+    
 End Sub
+
+Sub WriteToLogFile(logText As String)
+    Dim logFilePath As String
+    Dim userName As String
+    Dim finalPath As String
+    Dim logFileNumber As Integer
+    Dim configSheet As Worksheet
+    Dim lastRow As Long
+    Dim i As Long
+
+    ' Reference the XML_CREDENTIALS worksheet
+    Set configSheet = ThisWorkbook.Sheets("XML_CREDENTIALS")
+    
+    ' Find the row with "Import Folder" in column A
+    lastRow = configSheet.Cells(configSheet.Rows.Count, "A").End(xlUp).row
+    logFilePath = ""
+    
+    For i = 1 To lastRow
+    If configSheet.Range("A" & i).Value = "Import Folders" Then
+            logFilePath = configSheet.Range("B" & i).Value
+            Exit For
+        End If
+    Next i
+    
+    ' Ensure the log file path is not empty
+    If Trim(logFilePath) = "" Then
+        MsgBox "Log file path corresponding to 'Import Folder' in column A is empty. Please provide a valid path.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Get the username
+    userName = Environ("Username")
+    
+    ' Replace %Username% with the actual username
+    logFilePath = Replace(logFilePath, "%Username%", userName)
+    
+    ' Append \Logs\DTWLogResults.txt to the path
+    finalPath = logFilePath & "\Logs\DTWLogResults.txt"
+    
+    ' Get the next available file number
+    logFileNumber = FreeFile
+    
+    ' Open the log file for appending
+    On Error GoTo ErrorHandler
+    Open finalPath For Append As #logFileNumber
+    
+    ' Write the log text to the file
+    Print #logFileNumber, logText
+    
+    ' Close the file
+    Close #logFileNumber
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "An error occurred while writing to the log file: " & Err.Description, vbCritical
+    Close #logFileNumber
+End Sub
+
+Sub CopyLastOLOGRowToLogFile()
+    Dim dbPath As String
+    Dim conn As Object
+    Dim rs As Object
+    Dim sql As String
+    Dim logFilePath As String
+    Dim userName As String
+    Dim finalPath As String
+    Dim logFileNumber As Integer
+    Dim header As String
+    Dim lastRow As String
+    Dim i As Integer
+    Dim columnWidths() As Integer
+    Dim configSheet As Worksheet
+    Dim pathRow As Long
+    
+    ' Reference the XML_CREDENTIALS worksheet
+    Set configSheet = ThisWorkbook.Sheets("XML_CREDENTIALS")
+    
+    ' Attempt to find the row containing "Import Folders" in Column A
+    On Error Resume Next
+    pathRow = Application.WorksheetFunction.Match("Import Folders", configSheet.Columns("A"), 0)
+    On Error GoTo 0
+    
+     ' Check if the match was found
+    If IsError(pathRow) Then
+        MsgBox "Import Folder not found in XML_CREDENTIALS sheet.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Retrieve the path from Column B
+    dbPath = configSheet.Cells(pathRow, 2).Value
+    
+    ' Get the username
+    userName = Environ("Username")
+    
+    ' Replace %Username% with the actual username
+    dbPath = Replace(dbPath, "%Username%", userName)
+    
+    ' Construct the log file path (replace %Username% with actual username)
+    logFilePath = dbPath & "\Logs\DTWLogResults.txt"
+    
+    ' Define the path to the Access database
+    dbPath = dbPath & "\dtw.mdb"
+
+    ' SQL to get the last row from the OLOG table
+    sql = "SELECT * FROM OLOG ORDER BY LogID DESC"
+
+    ' Create a connection to the Access database
+    Set conn = CreateObject("ADODB.Connection")
+    conn.Open "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=" & dbPath & ";"
+
+    ' Execute the query and open the recordset
+    Set rs = CreateObject("ADODB.Recordset")
+    rs.Open sql, conn, 3, 1
+    
+    ' Initialize columnWidths array based on the number of fields
+    ReDim columnWidths(rs.Fields.Count - 1)
+    
+    ' Determine the maximum width for each column
+    For i = 0 To rs.Fields.Count - 1
+        columnWidths(i) = Len(rs.Fields(i).Name)
+    Next i
+
+    ' Move to the first row to check the data lengths
+    rs.MoveFirst
+    Do Until rs.EOF
+        For i = 0 To rs.Fields.Count - 1
+            If Len(rs.Fields(i).Value) > columnWidths(i) Then
+                columnWidths(i) = Len(rs.Fields(i).Value)
+            End If
+        Next i
+        rs.MoveNext
+    Loop
+    
+    ' Reset the recordset to the first row
+    rs.MoveFirst
+    
+    ' Get the header with aligned columns
+    For i = 0 To rs.Fields.Count - 1
+        header = header & PadRight(rs.Fields(i).Name, columnWidths(i) + 2)
+    Next i
+    
+    ' Check if the recordset is not empty
+    If Not rs.EOF Then
+        ' Get the last row with aligned columns
+        For i = 0 To rs.Fields.Count - 1
+            lastRow = lastRow & PadRight(rs.Fields(i).Value, columnWidths(i) + 2)
+        Next i
+        
+        ' Get the next available file number
+        logFileNumber = FreeFile
+        
+        ' Open the log file for appending
+        On Error GoTo ErrorHandler
+        Open logFilePath For Append As #logFileNumber
+        
+        ' Write the header before each row
+        Print #logFileNumber, header
+        Print #logFileNumber, lastRow
+        
+        ' Close the file
+        Close #logFileNumber
+    End If
+    
+    ' Clean up
+    rs.Close
+    conn.Close
+    Set rs = Nothing
+    Set conn = Nothing
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "An error occurred: " & Err.Description, vbCritical
+    If logFileNumber <> 0 Then Close #logFileNumber
+    If Not rs Is Nothing Then rs.Close
+    If Not conn Is Nothing Then conn.Close
+    Set rs = Nothing
+    Set conn = Nothing
+End Sub
+
+Function PadRight(ByVal text As String, ByVal totalWidth As Integer) As String
+    PadRight = text & Space(totalWidth - Len(text))
+End Function
