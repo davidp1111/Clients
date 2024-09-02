@@ -1,4 +1,4 @@
---AXIS/SQL_FORECAST.txt 2024-09-02_0437
+--AXIS/SQL_FORECAST.txt 2024-09-02_1324
 
 WITH DMD AS(
 	SELECT NULL AS "DocEntry", NULL AS "LineNum", im."ItemCode", im."Warehouse" AS "WhsCode", w1."WhsCode" AS "RcvWhs", im."DocDate", im."DocDate" AS "ShipDate", 
@@ -20,18 +20,18 @@ WITH DMD AS(
 ),
 
 FCT_DETAIL AS (
-	SELECT
+	SELECT 
 	COUNT (*) OVER () AS total_row_count, 
 	CASE
 			WHEN IFNULL(ib."RuleCode",'') <> 'DF' AND IFNULL(i."RuleCode", '') <> 'DF' 
 			THEN CURRENT_SCHEMA||'_HISTORICAL ('||TO_VARCHAR(CURRENT_TIMESTAMP, 'MM/DD/YYYY HH24:MI')
-			ELSE	CURRENT_SCHEMA||'_FUTURE_' || COALESCE('CG' || cg."GroupCode", 'TRWHS')||	
+			ELSE	CURRENT_SCHEMA||'_FUTURE_' || COALESCE('CG' || cg."GroupCode", 'WHT')||	
 					     CASE 
-					        WHEN COALESCE('CG' || cg."GroupCode", 'TRWHS') = COALESCE(c."ChannlBP", 'CG' || cg."GroupCode", 'TRWHS')
+					        WHEN COALESCE('CG' || cg."GroupCode", 'WHT') = COALESCE(c."ChannlBP", 'CG' || cg."GroupCode", 'WHT')
 					        THEN '_OTHER'
-					        ELSE '_' || COALESCE(c."ChannlBP", 'CG' || cg."GroupCode", 'TRWHS')
+					        ELSE '_' || COALESCE(c."ChannlBP", 'CG' || cg."GroupCode", 'WHT')
 					     END||' - '||
-					cg."GroupName"||': '||IFNULL(cbp."CardName",'OTHER')||'  ('||TO_VARCHAR(CURRENT_TIMESTAMP, 'MM/DD/YYYY HH24:MI')||')'
+					LEFT(cg."GroupName", 16)||': '||LEFT(IFNULL(cbp."CardName",'OTHER'), 20)||'  ('||TO_VARCHAR(CURRENT_TIMESTAMP, 'YYYYMMDD_HH24MI')
 	END AS "FctSheetName",
 	COALESCE('CG'||cg."GroupCode", 'TRWHS') AS "FctGroupCode",
 	CASE 
@@ -102,8 +102,8 @@ SELECT F."AbsID" AS "FctAbsID", F."Code", "FctSheetName"||' ID'||F."AbsID"||')' 
  "FctPeriod", "FctWhsCode", "DF_Status", SUM("Quantity") AS "FctQuantity", 'M' AS "View",
 --TO_VARCHAR(CURRENT_DATE, 'YYYYMM') || '01' AS "StartDate",
 --TO_VARCHAR(ADD_MONTHS(ADD_YEARS(CURRENT_DATE, 1), -1), 'YYYYMM') || TO_VARCHAR(LAST_DAY(ADD_MONTHS(ADD_YEARS(CURRENT_DATE, 1), -1)), 'DD') AS "EndDate"
-TO_VARCHAR(ADD_DAYS(LAST_DAY(ADD_MONTHS(ADD_YEARS(CURRENT_DATE,-1), -1)), 1), 'YYYYMMDD') AS "StartDate",
-TO_VARCHAR(LAST_DAY(ADD_MONTHS(CURRENT_DATE,-1)), 'YYYYMMDD') AS "EndDate"
+TO_VARCHAR(ADD_DAYS(LAST_DAY(ADD_MONTHS(CURRENT_DATE, -1)), 1), 'YYYYMMDD') AS "StartDate",
+TO_VARCHAR(ADD_YEARS(LAST_DAY(ADD_MONTHS(CURRENT_DATE,-1)),1), 'YYYYMMDD') AS "EndDate"
 FROM FCT_DETAIL FD
 LEFT JOIN OFCT F ON F."Code"=FD."FctSheetCode"
 WHERE "DF_Status"='FUTURE' AND FUTURE_PD=1
@@ -132,6 +132,8 @@ CROSS JOIN SERIES_GENERATE_INTEGER(7, 2 - DAYOFWEEK(CURRENT_DATE), 365)
 
 FORECAST AS(
 SELECT 
+FSL."EndDate" AS "FSL.EndDate", 
+TO_VARCHAR(IFNULL(OF."EndDate", F."EndDate"), 'YYYYMMDD') AS "F.EndDate",
 --F."Code" AS "F.Code", OF."Code" AS "OF.Code", F."AbsID" AS "F.AbsID", OF."AbsID" AS "OF.AbsID", F1."AbsID" AS "F1.AbsID", "DF_Status",
 CASE 
     WHEN IFNULL(OF."Name","FctSheetName") LIKE '%FUTURE%' THEN 'FUTURE'
@@ -152,7 +154,7 @@ ROW_NUMBER() OVER (
         IFNULL(FSL."FctPeriod", TO_CHAR(F1."Date", 'YYYYMMDD'))
 ) - 1 AS "FctLineID",	
 IFNULL(FSL."FctSheetCode", F."Code") AS "Code",
-IFNULL(OF."Name","FctSheetName") AS "SheetName",
+"FctSheetName",
 IFNULL(FSL."FctItemCode", F1."ItemCode") AS "ItemCode",  
 IFNULL(FSL."FctPeriod", TO_VARCHAR(F1."Date", 'YYYYMMDD')) AS "Date",  
 IFNULL(FSL."FctWhsCode", F1."WhsCode") AS "WhsCode", 
@@ -170,7 +172,7 @@ LEFT JOIN OFCT OF ON OF."AbsID"= F1."AbsID"
 --WHERE IFNULL(OF."Name","FctSheetName") LIKE CURRENT_SCHEMA || '_FUTURE%'
 WHERE IFNULL(OF."Name","FctSheetName") LIKE CURRENT_SCHEMA || '_HISTORICAL%' 
 --WHERE IFNULL(OF."Name","FctSheetName") LIKE CURRENT_SCHEMA || '_HISTORICAL%' OR IFNULL(OF."Name","FctSheetName") LIKE CURRENT_SCHEMA || '_FUTURE%'
-ORDER BY "LineID"
+ORDER BY IFNULL(FSL."FctAbsID",F1."AbsID"), "LineID"
 ),
 OFCT AS(
 SELECT 'AbsID' AS "Numerator", 'StartDate' AS "ForecastStartDate", 'EndDate' AS "ForecastEndDate", 'Code' AS "ForecastCode", 'Name' AS "ForecastName", 'FormView' AS "View" 
@@ -181,7 +183,7 @@ SELECT DISTINCT
     CAST("StartDate" AS VARCHAR) AS "ForecastStartDate", 
     CAST("EndDate" AS VARCHAR) AS "ForecastEndDate", 
     CAST("Code" AS VARCHAR) AS "ForecastCode", 
-    "SheetName" AS "ForecastName", 
+    "FctSheetName" AS "ForecastName", 
     "View" AS "View"
 FROM FORECAST
 WHERE  "AbsID" IS NOT NULL AND "Code" IS NOT NULL
@@ -192,7 +194,7 @@ SELECT
 	'ForecastedDay' AS "ForecastedDay", 'ItemNo' AS "ItemNo", 'Warehouse' AS "Warehouse" 
 FROM DUMMY 
 UNION ALL
-SELECT 
+SELECT --IFNULL("EndDate",0), "F.EndDate", "FSL.EndDate", "Fct_Type", "FCT1.Quantity",
 	CAST("AbsID" AS VARCHAR) AS "Numerator", 
     CAST("FctLineID" AS VARCHAR) AS "LineNum",
     CAST("FctQuantity" AS VARCHAR) AS "Quantity", 
@@ -200,18 +202,13 @@ SELECT
     "ItemCode" AS "ItemCode", 
     "WhsCode" AS "Warehouse"
 FROM FORECAST
-WHERE ("FCT1.Quantity" IS NULL AND "Fct_Type"='FUTURE') 
-AND NOT(IFNULL("FCT1.Quantity",0)=IFNULL("FctQuantity",0) AND "Fct_Type"='HISTORICAL')
+WHERE (IFNULL("EndDate",0)<>"F.EndDate" AND "FCT1.Quantity" IS NULL AND "Fct_Type"='FUTURE') AND 
+NOT(IFNULL("FCT1.Quantity",0)=IFNULL("FctQuantity",0) AND "Fct_Type"='HISTORICAL')
 )
---SELECT * FROM FCT_WKLY_HISTORICAL WHERE "FctItemCode"='0995174'
+--SELECT * FROM FCT_DETAIL WHERE "FctSheetCode"<>'AXIS_HF'
 --SELECT * FROM FCT_SHEETCODE_HISTORICAL
 --SELECT * FROM FCT_SHEETCODE_FUTURE
---SELECT * FROM FCT1 WHERE "Quantity" IS NOT NULL
---SELECT * FROM FCT1 WHERE "ItemNo"='0201417' --AND "LineNum"=0
---SELECT * FROM FCT1 WHERE "ItemNo"='0995174'
---SELECT * FROM FORECAST WHERE "ItemCode"='0201417' --AND "FCT1.LineID"=0
---SELECT * FROM FCT_SHEETCODE_HISTORICAL WHERE "FctItemCode"='0201417'
---SELECT * FROM FORECAST WHERE "ItemCode"='0995174'
 --SELECT * FROM FORECAST
 SELECT * FROM OFCT
 --SELECT * FROM FCT1
+--SELECT * FROM FCT1 WHERE "AbsID"=24
