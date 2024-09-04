@@ -1,5 +1,5 @@
-'VBA_PROCESS_FORECAST.vba 2024-09-02_0157
-Sub ProcessForecast()
+'VBA_PROCESS_FORECAST.vba 2024-09-03_2009
+Sub ProcessForecastNoDtw()
     Dim conn As Object
     Dim configSheet As Worksheet
     Dim xmlCreds As Worksheet
@@ -9,6 +9,8 @@ Sub ProcessForecast()
     logMessage = "----------------------------------------------" & vbCrLf & _
                  "Start Forecast Process:  " & Format(Now, "mm/dd/yyyy HH:MM:SS")
     WriteToLogFile logMessage
+    
+    Call CheckLicenseExpiration
     
     Call GitHubSqlXml
     
@@ -27,7 +29,7 @@ Sub ProcessForecast()
     ' Find the DTW.exe path
     processPath = "" ' Reset the processPath
     For i = 1 To lastRow
-        If configSheet.Range("A" & i).Value = "DTW.exe" Then
+        If configSheet.Range("A" & i).Value = "DTWEXE" Then
             processPath = configSheet.Range("B" & i).Value
             Exit For
         End If
@@ -94,7 +96,7 @@ Sub ProcessSection(sectionName As String, configSheet As Worksheet, xmlCreds As 
     
     ' Find the Import Folders path
     For j = 1 To lastRow
-        If configSheet.Range("A" & j).Value = "Import Folders" Then
+        If configSheet.Range("A" & j).Value = "ImportFolders" Then
             basePath = configSheet.Range("B" & j).Value
             Exit For
         End If
@@ -149,7 +151,7 @@ Sub ProcessSection(sectionName As String, configSheet As Worksheet, xmlCreds As 
     parameters = xmlPath & "XML_" & sectionName & ".xml"
     
     ' Call the RunDTW subroutine with the processPath and parameters
-    Call RunDTW(processPath, parameters, sqlfilePath, sqlfile2Path, dtwFilePath, dtwFile2Path, xmlfilePath)
+    ' Call RunDTW(processPath, parameters, sqlfilePath, sqlfile2Path, dtwFilePath, dtwFile2Path, xmlfilePath)
     
     'MsgBox sectionName & " completed successfully.", vbInformation
 End Sub
@@ -332,7 +334,6 @@ Sub CreateXMLFileWithReplacements(sheet As Worksheet, xmlCreds As Worksheet, fil
     Close xmlFile
 End Sub
 
-
 Sub RunDTW(processPath As String, parameters As String, sqlfilePath As String, sqlfile2Path As String, dtwFilePath As String, dtwFile2Path As String, xmlfilePath As String)
     Dim wsh As Object
     Dim execResult As Long
@@ -380,7 +381,7 @@ Sub WriteToLogFile(logText As String)
     logFilePath = ""
     
     For i = 1 To lastRow
-    If configSheet.Range("A" & i).Value = "Import Folders" Then
+    If configSheet.Range("A" & i).Value = "ImportFolders" Then
             logFilePath = configSheet.Range("B" & i).Value
             Exit For
         End If
@@ -397,6 +398,14 @@ Sub WriteToLogFile(logText As String)
     
     ' Replace %Username% with the actual username
     logFilePath = Replace(logFilePath, "%Username%", userName)
+    
+    ' Define the folder path where the log file will be stored
+    logFolder = logFilePath & "\Logs"
+    
+    ' Check if the folder exists, and create it if it doesn't
+    If Dir(logFolder, vbDirectory) = "" Then
+        MkDir logFolder
+    End If
     
     ' Append \Logs\DTWLogResults.txt to the path
     finalPath = logFilePath & "\Logs\DTWLogResults.txt"
