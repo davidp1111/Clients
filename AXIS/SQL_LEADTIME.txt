@@ -1,14 +1,6 @@
--- AXIS/SQL_LEADTIME.txt 2024-09-04_1931
--- VBA_SUPPLYCHAINCUBE_LEADTIME.sql 2024-08-26_1949
-
--- SUPPLYCHAINCUBE.sql 2024-08-03_1115a
-
--- BASE_SUPPLYCHAINCUBE_OITMCHGS.sql  2024-08-23_1352
+-- AXIS/SQL_LEADTIME.txt 2024-09-04_1934
 
 WITH CHANGE_LOG AS(
-
---SUPPLYCHAINCUBE_COMPONENTS/CHANGE_LOG.sql 2024-08-23_1347
-
 SELECT i."ItemCode", iw."WhsCode", iw."MinStock", iw."MaxStock", i."PlaningSys", i."PrcrmntMtd", i."OrdrIntrvl", i."OrdrMulti", i."MinOrdrQty", i."LeadTime",
     CASE 
         WHEN LENGTH(i."UpdateTS") BETWEEN 5 AND 6 THEN
@@ -38,22 +30,15 @@ SELECT DISTINCT i."ItemCode", iw."WhsCode", iw."MinStock", iw."MaxStock", i."Pla
     END AS "UpdateLogTS"   
 FROM AITM i
 JOIN AITW iw ON i."ItemCode"=iw."ItemCode" AND i."LogInstanc"=iw."logInstanc"
-
---SUPPLYCHAINCUBE_COMPONENTS/CHANGE_LOG.sql
-
 ),
+
 DOC_HIST AS(
-
---SUPPLYCHAINCUBE_COMPONENTS/DOC_HIST.sql 2024-08-23_1348
-
 SELECT d1."ObjType", d."DocNum", d1."DocEntry", d1."LineNum", d."OriginType", d1."ItemCode", d1."ShipDate", "OriginType"
 FROM ADO1 d1
 JOIN ADOC d ON d."ObjType"=d1."ObjType" AND d."DocEntry"=d1."DocEntry" AND d."LogInstanc"=d1."LogInstanc"
 WHERE d1."ObjType"='22' AND d1."LogInstanc"=1
-
---SUPPLYCHAINCUBE_COMPONENTS/DOC_HIST.sql
-
 ),
+
 PO_HIST AS(
 SELECT 
 p1."ItemCode", p1."WhsCode", p."OriginType", p."DocNum", p1."ObjType", p1."DocEntry", p1."LineNum",
@@ -90,8 +75,6 @@ LEFT JOIN CHANGE_LOG cl ON cl."ItemCode" = p1."ItemCode" AND p1."WhsCode"=cl."Wh
 		        'YYYY-MM-DD HH24:MI:SS')
 	    	ELSE null END)
 ),
-
--- BASE_SUPPLYCHAINCUBE_OITMCHGS.sql
 
 SCC AS(
 SELECT
@@ -219,14 +202,10 @@ AND (pd1."ActDelDate" BETWEEN ADD_MONTHS(CURRENT_DATE, -12) AND CURRENT_DATE OR 
 --AND NOT(po."OriginType"<>'R' AND cyc."Name"='MULTI')  --Removes MULTI items not created by MRP
 --Test Multi in this scenario where not M..make sure line is not supressed when Name is null but MULTI is removed when not MRP
 AND (cyc."Name" IS NULL OR NOT (po."OriginType"<>'R' AND cyc."Name"='MULTI'))
-
-
 --AND i."PlaningSys" = 'M' -- Keep off unless limiting to Planned only for diagnostics
 ORDER BY COALESCE(pd1."ItemCode",po1."ItemCode"), COALESCE(pd1."ActDelDate", po1."ShipDate")
-
--- SUPPLYCHAINCUBE.sql
-
 ),
+
 LT AS(
 SELECT
     "ItemCode",
@@ -311,8 +290,8 @@ HAVING "LeadTime" <>
         END - 1, "LeadTime")
     ) AS VARCHAR)
 )
---SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime"/*, 'PurFactor2' AS "PurchaseFactor2"*/  FROM DUMMY UNION ALL 
---SELECT "ItemCode", "LeadTime"/*, CAST("OITM_LeadTime" AS VARCHAR) AS "PurchaseFactor2"*/  FROM LT
+SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime"/*, 'PurFactor2' AS "PurchaseFactor2"*/  FROM DUMMY UNION ALL 
+SELECT "ItemCode", "LeadTime"/*, CAST("OITM_LeadTime" AS VARCHAR) AS "PurchaseFactor2"*/  FROM LT
 
-SELECT * FROM SCC
+--SELECT * FROM SCC
 --SELECT * FROM LT
