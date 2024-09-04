@@ -1,4 +1,4 @@
--- AXIS/SQL_LEADTIME.txt 2024-08-27_1253
+-- AXIS/SQL_LEADTIME.txt 2024-09-04_1621
 -- VBA_SUPPLYCHAINCUBE_LEADTIME.sql 2024-08-26_1949
 
 -- SUPPLYCHAINCUBE.sql 2024-08-03_1115a
@@ -178,6 +178,8 @@ SELECT
 	"SalFactor1", "SalFactor2", "SalFactor3", "SalFactor4", "PurFactor1", "PurFactor2", "PurFactor3", "PurFactor4"
 FROM OPOR po
 LEFT JOIN POR1 po1 ON po1."DocEntry"=po."DocEntry" AND po1."TargetType" <> 22 AND NOT (po1."TargetType" = -1 AND po1."LineStatus" = 'C') 
+LEFT JOIN DPO1 dp1 ON po1."DocEntry" = dp1."BaseEntry" AND po1."LineNum" = dp1."BaseLine" AND po1."ObjType" = dp1."BaseType" AND dp1."ObjType" <> 22
+LEFT JOIN ODPO dp ON dp1."DocEntry" = dp."DocEntry" AND dp1."ObjType" = dp."ObjType"
 FULL OUTER JOIN PDN1 pd1 ON po1."DocEntry" = pd1."BaseEntry" AND po1."LineNum" = pd1."BaseLine" AND po1."ObjType" = pd1."BaseType" AND pd1."ObjType" <> 22
 LEFT JOIN OPDN p ON pd1."DocEntry" = p."DocEntry" AND pd1."ObjType" = p."ObjType"
 LEFT JOIN OINM im ON im."CreatedBy"=pd1."DocEntry" AND im."DocLineNum"=pd1."LineNum" and "TransType"=20
@@ -287,7 +289,7 @@ HAVING "LeadTime" <>
         END - 1, "LeadTime")
     ) AS VARCHAR)
 )
-SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime", 'PurFactor2' AS "PurchaseFactor2"  FROM DUMMY UNION ALL 
-SELECT "ItemCode", "LeadTime", CAST("OITM_LeadTime" AS VARCHAR) AS "PurchaseFactor2"  FROM LT
+SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime"/*, 'PurFactor2' AS "PurchaseFactor2"*/  FROM DUMMY UNION ALL 
+SELECT "ItemCode", "LeadTime"/*, CAST("OITM_LeadTime" AS VARCHAR) AS "PurchaseFactor2"*/  FROM LT
 
 -- VBA_SUPPLYCHAINCUBE_LEADTIME.sql
