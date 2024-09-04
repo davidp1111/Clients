@@ -1,4 +1,4 @@
--- AXIS/SQL_LEADTIME.txt 2024-09-04_1621
+-- AXIS/SQL_LEADTIME.txt 2024-09-04_1649
 -- VBA_SUPPLYCHAINCUBE_LEADTIME.sql 2024-08-26_1949
 
 -- SUPPLYCHAINCUBE.sql 2024-08-03_1115a
@@ -94,7 +94,7 @@ LEFT JOIN CHANGE_LOG cl ON cl."ItemCode" = p1."ItemCode" AND p1."WhsCode"=cl."Wh
 -- BASE_SUPPLYCHAINCUBE_OITMCHGS.sql
 
 SCC AS(
-SELECT 
+SELECT
 	COUNT(*) OVER () AS total_row_count,
 	i."ItemCode",
     i."CardCode",
@@ -122,11 +122,31 @@ SELECT
 	        WHEN im."CalcPrice" = 0 THEN im."Balance"
 	        ELSE im."Balance" / im."CalcPrice"
     END AS INTEGER) AS "PostRcvOH",
+    
+    CAST(
+        CASE 
+            WHEN cyc."Name" LIKE 'DP-%' THEN 
+                DAYS_BETWEEN(IFNULL(dp."DocDate", ph."OrigPOReleaseDate"), pd1."ActDelDate") -
+                (FLOOR((DAYS_BETWEEN(IFNULL(dp."DocDate", ph."OrigPOReleaseDate"), pd1."ActDelDate") + DAYOFWEEK(IFNULL(dp."DocDate", ph."OrigPOReleaseDate"))) / 7) * 2) -
+                (CASE WHEN DAYOFWEEK(IFNULL(dp."DocDate", ph."OrigPOReleaseDate")) = 1 THEN 1 ELSE 0 END) -
+                (CASE WHEN DAYOFWEEK(pd1."ActDelDate") = 7 THEN 1 ELSE 0 END)
+            ELSE 
+                DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") -
+                (FLOOR((DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") + DAYOFWEEK(ph."OrigPOReleaseDate")) / 7) * 2) -
+                (CASE WHEN DAYOFWEEK(ph."OrigPOReleaseDate") = 1 THEN 1 ELSE 0 END) -
+                (CASE WHEN DAYOFWEEK(pd1."ActDelDate") = 7 THEN 1 ELSE 0 END)
+        END AS INTEGER
+    ) AS "ActDelWDays",   
+    /*CAST((DAYS_BETWEEN(IFNULL(dp."DocDate", ph."OrigPOReleaseDate"), pd1."ActDelDate") -
+        (FLOOR((DAYS_BETWEEN(IFNULL(dp."DocDate", ph."OrigPOReleaseDate"), pd1."ActDelDate") + DAYOFWEEK(IFNULL(dp."DocDate", ph."OrigPOReleaseDate"))) / 7) * 2) -
+        (CASE WHEN DAYOFWEEK(IFNULL(dp."DocDate", ph."OrigPOReleaseDate")) = 1 THEN 1 ELSE 0 END) -
+        (CASE WHEN DAYOFWEEK(pd1."ActDelDate") = 7 THEN 1 ELSE 0 END)
+    ) AS INTEGER) AS "ActDelWDaysDp", 
     CAST((DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") -
         (FLOOR((DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") + DAYOFWEEK(ph."OrigPOReleaseDate")) / 7) * 2) -
         (CASE WHEN DAYOFWEEK(ph."OrigPOReleaseDate") = 1 THEN 1 ELSE 0 END) -
         (CASE WHEN DAYOFWEEK(pd1."ActDelDate") = 7 THEN 1 ELSE 0 END)
-    ) AS INTEGER) AS "ActDelWDays",
+    ) AS INTEGER) AS "ActDelWDaysOLD",  */
     CAST((DAYS_BETWEEN(po."DocDate", po1."ShipDate") -
         (FLOOR((DAYS_BETWEEN(po."DocDate", po1."ShipDate") + DAYOFWEEK(po."DocDate")) / 7) * 2) -
         (CASE WHEN DAYOFWEEK(po."DocDate") = 1 THEN 1 ELSE 0 END) -
@@ -198,6 +218,7 @@ AND (pd1."ActDelDate" BETWEEN ADD_MONTHS(CURRENT_DATE, -12) AND CURRENT_DATE OR 
 --AND NOT(po."OriginType"<>'R' AND cyc."Name"='MULTI')  --Removes MULTI items not created by MRP
 --Test Multi in this scenario where not M..make sure line is not supressed when Name is null but MULTI is removed when not MRP
 AND (cyc."Name" IS NULL OR NOT (po."OriginType"<>'R' AND cyc."Name"='MULTI'))
+
 
 --AND i."PlaningSys" = 'M' -- Keep off unless limiting to Planned only for diagnostics
 ORDER BY COALESCE(pd1."ItemCode",po1."ItemCode"), COALESCE(pd1."ActDelDate", po1."ShipDate")
@@ -289,7 +310,8 @@ HAVING "LeadTime" <>
         END - 1, "LeadTime")
     ) AS VARCHAR)
 )
-SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime"/*, 'PurFactor2' AS "PurchaseFactor2"*/  FROM DUMMY UNION ALL 
-SELECT "ItemCode", "LeadTime"/*, CAST("OITM_LeadTime" AS VARCHAR) AS "PurchaseFactor2"*/  FROM LT
+--SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime"/*, 'PurFactor2' AS "PurchaseFactor2"*/  FROM DUMMY UNION ALL 
+--SELECT "ItemCode", "LeadTime"/*, CAST("OITM_LeadTime" AS VARCHAR) AS "PurchaseFactor2"*/  FROM LT
 
--- VBA_SUPPLYCHAINCUBE_LEADTIME.sql
+SELECT * FROM SCC
+--SELECT * FROM LT
