@@ -1,4 +1,4 @@
---AXIS/SQL_FORECAST.txt 2024-09-03_1252
+--AXIS/SQL_FORECAST.txt 2024-09-03_2005
 
 WITH DMD AS(
 	SELECT NULL AS "DocEntry", NULL AS "LineNum", im."ItemCode", im."Warehouse" AS "WhsCode", w1."WhsCode" AS "RcvWhs", im."DocDate", im."DocDate" AS "ShipDate", 
@@ -20,7 +20,7 @@ WITH DMD AS(
 ),
 
 FCT_DETAIL AS (
-	SELECT --iFNULL(ai."PlaningSys",i."PlaningSys"), i."RuleCode",
+	SELECT 
 	COUNT (*) OVER () AS total_row_count, 
 	CASE
 			WHEN IFNULL(ib."RuleCode",'') <> 'DF' AND IFNULL(i."RuleCode", '') <> 'DF' 
@@ -46,7 +46,7 @@ FCT_DETAIL AS (
 	ai."ItemCode" AS "AltItemCode", i."ItemCode" AS "OrderItemCode", COALESCE(ai."ItemCode",i."ItemCode") AS "ItemCode", 
 	ai."PlaningSys" AS "AltPlaningSys", i."PlaningSys" AS "OrderPlaningSys", COALESCE(ai."PlaningSys",i."PlaningSys") AS "PlaningSys",
 	ai."LeadTime" AS "AltLeadTime", i."LeadTime" AS "OrderLeadTime", COALESCE(ai."LeadTime",i."LeadTime") AS "LeadTime",	
-	ai."OrdrIntrvl" AS "AltOrdrIntrvl", i."OrdrIntrvl" AS "OrderOrdrIntrvl", COALESCE(ai."OrdrIntrvl",i."OrdrIntrvl") AS "OrdrIntrvl",	
+	ai."OrdrIntrvl" AS "AltOrdrIntrvl", i."OrdrIntrvl" AS "OrderOrdrIntrvl", COALESCE(ai."OrdrIntrvl",i."OrdrIntrvl") AS "OrdrIntrvl",
 	ai."OrdrMulti" AS "AltOrdrMulti", i."OrdrMulti" AS "OrderOrdrMulti", COALESCE(ai."OrdrMulti",i."OrdrMulti") AS "OrdrMulti",
 	acy."Name" AS "AltName", cy."Name" AS "OrderName", COALESCE(acy."Name",cy."Name") AS "Name",
  	a."Match", r1."Quantity" AS "OrderQuantity", CAST(CASE WHEN a."Match" IS NULL then "Quantity" ELSE 100/a."Match" * "Quantity" END AS INTEGER) AS "Quantity",
@@ -78,10 +78,12 @@ FCT_DETAIL AS (
 	LEFT JOIN OITM ai ON (a."AltItem"=ai."ItemCode" OR ai."ItemCode" IS NULL)  AND i."PlaningSys"='N'
 	LEFT JOIN OCYC acy ON acy."Code" = ai."OrdrIntrvl"
 	LEFT JOIN OCRG cg ON  cg."GroupCode"=c."GroupCode"
-	LEFT JOIN OITB ib ON ib."ItmsGrpCod"=i."ItmsGrpCod"	
-	WHERE 	i."LeadTime"<>0 AND i."LeadTime" IS NOT NULL 
-			AND IFNULL(cy."Name",'')<> 'NONSTOCK' 
-			AND IFNULL(ai."PlaningSys",i."PlaningSys")<>'N'
+	LEFT JOIN OITB ib ON ib."ItmsGrpCod"=i."ItmsGrpCod"
+	--WHERE 	i."LeadTime"<>0 AND i."LeadTime" IS NOT NULL 
+		--AND IFNULL(cy."Name",'')<> 'NONSTOCK' 
+		--AND IFNULL(ai."PlaningSys",i."PlaningSys")<>'N'
+	--WHERE i."LeadTime"<>0 AND i."LeadTime" IS NOT NULL AND cy."Name"<> 'NONSTOCK' AND NOT(i."PlaningSys"='N' AND ai."PlaningSys"='N') 
+	WHERE i."LeadTime"<>0 AND i."LeadTime" IS NOT NULL AND cy."Name"<> 'NONSTOCK' AND IFNULL(ai."PlaningSys",i."PlaningSys")<>'N' 
 ),
 
 FCT_CARDCODE_FUTURE AS(	--FUTURE USE	
@@ -206,7 +208,7 @@ FROM FORECAST
 WHERE (IFNULL("EndDate",0)<>"F.EndDate" AND "FCT1.Quantity" IS NULL AND "Fct_Type"='FUTURE') AND 
 NOT(IFNULL("FCT1.Quantity",0)=IFNULL("FctQuantity",0) AND "Fct_Type"='HISTORICAL')
 )
---SELECT * FROM FCT_DETAIL WHERE "FctSheetCode"<>CURRENT_SCHEMA||'_HF'
+--SELECT * FROM FCT_DETAIL WHERE "FctSheetCode"<>'AXIS_HF'
 --SELECT * FROM FCT_SHEETCODE_HISTORICAL
 --SELECT * FROM FCT_SHEETCODE_FUTURE
 --SELECT * FROM FORECAST
