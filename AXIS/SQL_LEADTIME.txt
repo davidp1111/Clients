@@ -1,4 +1,4 @@
--- AXIS/SQL_LEADTIME.txt 2024-09-04_1649
+-- AXIS/SQL_LEADTIME.txt 2024-09-04_1931
 -- VBA_SUPPLYCHAINCUBE_LEADTIME.sql 2024-08-26_1949
 
 -- SUPPLYCHAINCUBE.sql 2024-08-03_1115a
@@ -111,7 +111,8 @@ SELECT
 	p."DocNum" AS "GrDocNum", pd1."DocEntry" AS "GrDocEntry", pd1."LineNum" AS "GrLineNum", TO_NVARCHAR(p."DocDate", 'MM/DD/YYYY') AS "GrDocDate", pd1."Quantity", pd1."InvQty", 
     9999999 AS OPOR, 
 	ROW_NUMBER() OVER (PARTITION BY po1."ItemCode" ORDER BY COALESCE(pd1."ActDelDate", po1."ShipDate") DESC) AS "PoRowNum", po."OriginType",
-	po."DocNum" AS "PoDocNum", po1."DocEntry" AS "PoDocEntry", po1."LineNum" AS "PoLineNum", TO_NVARCHAR(po."DocDate", 'MM/DD/YYYY') AS "PoDocDate", ph."OrigPOReleaseDate", TO_NVARCHAR(po1."ShipDate", 'MM/DD/YYYY') AS "PoShipDate", po."CreateTS" AS "PoCreateTS", 
+	po."DocNum" AS "PoDocNum", po1."DocEntry" AS "PoDocEntry", po1."LineNum" AS "PoLineNum", TO_NVARCHAR(po."DocDate", 'MM/DD/YYYY') AS "PoDocDate", 
+	TO_NVARCHAR(ph."OrigPOReleaseDate", 'MM/DD/YYYY') AS "OrigPOReleaseDate", TO_NVARCHAR(po1."ShipDate", 'MM/DD/YYYY') AS "PoShipDate", po."CreateTS" AS "PoCreateTS", 
 	po1."Quantity" AS "PoQuantity", po1."InvQty" AS "PoInvQty", --po1."ItemCode" AS "PoItemCode",
     9999999 AS OINM, 
 	CAST(CASE
