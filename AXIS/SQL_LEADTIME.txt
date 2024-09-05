@@ -1,4 +1,4 @@
--- AXIS/SQL_LEADTIME.txt 2024-09-04_1934
+-- AXIS/SQL_LEADTIME.txt 2024-09-04_2005
 
 WITH CHANGE_LOG AS(
 SELECT i."ItemCode", iw."WhsCode", iw."MinStock", iw."MaxStock", i."PlaningSys", i."PrcrmntMtd", i."OrdrIntrvl", i."OrdrMulti", i."MinOrdrQty", i."LeadTime",
@@ -203,7 +203,25 @@ AND (pd1."ActDelDate" BETWEEN ADD_MONTHS(CURRENT_DATE, -12) AND CURRENT_DATE OR 
 --Test Multi in this scenario where not M..make sure line is not supressed when Name is null but MULTI is removed when not MRP
 AND (cyc."Name" IS NULL OR NOT (po."OriginType"<>'R' AND cyc."Name"='MULTI'))
 --AND i."PlaningSys" = 'M' -- Keep off unless limiting to Planned only for diagnostics
+--AND iw."WhsCode" NOT IN('QC') --Exclude Warehouse from LT Calculation for WT
+--AND NOT(cyc."Name" LIKE 'DP-%' AND dp."DocNum" IS NULL)  Exclude OI Downpayment missing DocNum for WT
+/*AND NOT(cyc."Name" LIKE 'DP-%' AND 
+		CAST(
+	        CASE 
+	            WHEN cyc."Name" LIKE 'DP-%' THEN 
+	                DAYS_BETWEEN(IFNULL(dp."DocDate", ph."OrigPOReleaseDate"), pd1."ActDelDate") -
+	                (FLOOR((DAYS_BETWEEN(IFNULL(dp."DocDate", ph."OrigPOReleaseDate"), pd1."ActDelDate") + DAYOFWEEK(IFNULL(dp."DocDate", ph."OrigPOReleaseDate"))) / 7) * 2) -
+	                (CASE WHEN DAYOFWEEK(IFNULL(dp."DocDate", ph."OrigPOReleaseDate")) = 1 THEN 1 ELSE 0 END) -
+	                (CASE WHEN DAYOFWEEK(pd1."ActDelDate") = 7 THEN 1 ELSE 0 END)
+	            ELSE 
+	                DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") -
+	                (FLOOR((DAYS_BETWEEN(ph."OrigPOReleaseDate", pd1."ActDelDate") + DAYOFWEEK(ph."OrigPOReleaseDate")) / 7) * 2) -
+	                (CASE WHEN DAYOFWEEK(ph."OrigPOReleaseDate") = 1 THEN 1 ELSE 0 END) -
+	                (CASE WHEN DAYOFWEEK(pd1."ActDelDate") = 7 THEN 1 ELSE 0 END)
+	        END AS INTEGER
+    )<30)*/  --Exclude OI Downpayment where LT <30 Days
 ORDER BY COALESCE(pd1."ItemCode",po1."ItemCode"), COALESCE(pd1."ActDelDate", po1."ShipDate")
+
 ),
 
 LT AS(
@@ -275,7 +293,7 @@ SELECT
         THEN 'Y' 
     END "MaxLastRct",
     "SalFactor1", "SalFactor2", "SalFactor3", "SalFactor4", "PurFactor1", "PurFactor2", "PurFactor3", "PurFactor4"  
-FROM SCC   
+FROM SCC
 GROUP BY "PlaningSys", "OrdrIntrvl", "Name", "RuleCode", "ItemCode", "LeadTime", "CardCode", "SalFactor1", "SalFactor2", "SalFactor3", "SalFactor4", "PurFactor1", "PurFactor2", "PurFactor3", "PurFactor4" 
 HAVING "LeadTime" <>
     CAST(GREATEST(
@@ -293,5 +311,5 @@ HAVING "LeadTime" <>
 SELECT 'ItemCode' AS "ItemCode", 'LeadTime' AS "LeadTime"/*, 'PurFactor2' AS "PurchaseFactor2"*/  FROM DUMMY UNION ALL 
 SELECT "ItemCode", "LeadTime"/*, CAST("OITM_LeadTime" AS VARCHAR) AS "PurchaseFactor2"*/  FROM LT
 
---SELECT * FROM SCC
 --SELECT * FROM LT
+--SELECT * FROM SCC
